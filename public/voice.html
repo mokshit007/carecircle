@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CareCircle · Alexa+ Voice Console</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+    .device { background: #0f1720; color: #eef2f6; border-radius: 22px; padding: 22px; display: flex; flex-direction: column; min-height: 560px; }
+    .ring-wrap { display: flex; justify-content: center; padding: 8px 0 18px; }
+    .ring {
+      width: 96px; height: 96px; border-radius: 50%; border: 6px solid #22303d; display: grid; place-items: center;
+      cursor: pointer; transition: border-color .2s, box-shadow .2s; background: #16202b; color: #9fb3c8; font-size: 30px;
+    }
+    .ring.listening { border-color: #18c6ff; box-shadow: 0 0 28px #18c6ff88; color: #18c6ff; animation: pulse 1.2s infinite; }
+    .ring.thinking { border-color: #18c6ff; border-top-color: #4f46e5; animation: spin 0.9s linear infinite; }
+    .ring.speaking { border-color: #18c6ff; box-shadow: 0 0 18px #18c6ff55; }
+    @keyframes pulse { 50% { box-shadow: 0 0 44px #18c6ffbb; } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hint { text-align: center; color: #8ea2b6; font-size: 14px; margin-top: -8px; margin-bottom: 12px; }
+    .log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px 2px; max-height: 420px; }
+    .msg { max-width: 85%; padding: 10px 14px; border-radius: 16px; font-size: 17px; }
+    .msg.user { align-self: flex-end; background: #233142; border-bottom-right-radius: 4px; }
+    .msg.alexa { align-self: flex-start; background: #0e3a4a; border-bottom-left-radius: 4px; }
+    .msg.alexa::before { content: 'Alexa'; display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #18c6ff; margin-bottom: 2px; }
+    form.say { display: flex; gap: 8px; margin-top: 14px; }
+    form.say input { flex: 1; min-width: 0; font: inherit; padding: 10px 14px; border-radius: 999px; border: 1px solid #2c3a49; background: #16202b; color: inherit; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .chips button { background: #16202b; border-color: #2c3a49; color: #cfe0ee; font-size: 14px; }
+    ul.plain.trace li { flex-direction: column; align-items: stretch; gap: 4px; }
+    .trace code { font-size: 13px; background: var(--upcoming-soft); padding: 2px 6px; border-radius: 6px; word-break: break-word; }
+    .mode { font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <div class="logo">C</div>
+      <div>
+        <h1>Alexa+ voice console</h1>
+        <p>Simulated Echo device talking to the CareCircle MCP server</p>
+      </div>
+    </div>
+    <nav>
+      <a href="/">← Family dashboard</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="layout">
+      <section class="device">
+        <div class="ring-wrap"><div class="ring" id="ring" title="Tap to talk">🎙</div></div>
+        <div class="hint" id="hint">Tap the ring and speak, or type below</div>
+        <div class="log" id="log"></div>
+        <form class="say" id="say">
+          <input id="text" placeholder="e.g. I just took my Metformin" autocomplete="off">
+          <button class="primary" type="submit">Say</button>
+        </form>
+        <div class="chips" id="chips"></div>
+      </section>
+
+      <section class="card">
+        <h2>Under the hood · MCP tool calls</h2>
+        <p class="muted mode" id="mode"></p>
+        <ul class="plain trace" id="trace"><li class="empty">Tool calls made over Streamable HTTP will appear here.</li></ul>
+        <p style="margin-top:16px"><button id="reset">Reset demo data</button></p>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const conversationId = Math.random().toString(36).slice(2);
+    const ring = $('ring');
+    const examples = [
+      'What medicine do I take today?',
+      'I just took my Metformin',
+      'Did I miss anything?',
+      "I'm feeling a bit dizzy this morning",
+      'When is my next doctor appointment?',
+      'Tell Priya I need a refill of Lisinopril',
+      'How has Mum been doing this week?',
+    ];
+    $('chips').innerHTML = examples.map((e) => `<button type="button">${esc(e)}</button>`).join('');
+    $('chips').addEventListener('click', (ev) => { if (ev.target.tagName === 'BUTTON') send(ev.target.textContent); });
+
+    function setRing(state) { ring.className = 'ring ' + (state || ''); }
+    function add(role, text) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + role;
+      div.textContent = text;
+      $('log').appendChild(div);
+      $('log').scrollTop = $('log').scrollHeight;
+    }
+
+    function speak(text) {
+      if (!('speechSynthesis' in window)) return;
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 0.95;
+      u.onstart = () => setRing('speaking');
+      u.onend = () => setRing('');
+      speechSynthesis.speak(u);
+    }
+
+    async function send(utterance) {
+      if (!utterance.trim()) return;
+      add('user', utterance);
+      setRing('thinking');
+      try {
+        const res = await fetch('/api/assistant', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ utterance, conversationId }),
+        });
+        const data = await res.json();
+        add('alexa', data.reply);
+        renderTrace(data);
+        speak(data.reply);
+      } catch (err) {
+        add('alexa', 'Sorry, I could not reach CareCircle.');
+      }
+      setRing('');
+    }
+
+    function renderTrace(data) {
+      $('mode').textContent = data.mode === 'bedrock'
+        ? 'Reasoning: Claude on Amazon Bedrock → tools discovered via MCP tools/list'
+        : 'Reasoning: offline keyword router (set BEDROCK_ENABLED=true for Claude on Bedrock)';
+      if (!data.trace?.length) return;
+      if ($('trace').querySelector('.empty')) $('trace').innerHTML = '';
+      for (const t of data.trace) {
+        const li = document.createElement('li');
+        li.innerHTML = `<div><span class="chip info">tools/call</span> <strong>${esc(t.tool)}</strong></div>
+          <code>${esc(JSON.stringify(t.input))}</code><span class="muted">→ ${esc(t.output)}</span>`;
+        $('trace').prepend(li);
+      }
+    }
+
+    $('say').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const text = $('text').value;
+      $('text').value = '';
+      send(text);
+    });
+
+    $('reset').addEventListener('click', async () => {
+      await fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversationId }) });
+      $('log').innerHTML = '';
+      $('trace').innerHTML = '<li class="empty">Demo data reset.</li>';
+    });
+
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (Recognition) {
+      const rec = new Recognition();
+      rec.lang = 'en-US';
+      rec.interimResults = false;
+      rec.onstart = () => { setRing('listening'); $('hint').textContent = 'Listening…'; };
+      rec.onend = () => { if (ring.classList.contains('listening')) setRing(''); $('hint').textContent = 'Tap the ring and speak, or type below'; };
+      rec.onerror = () => setRing('');
+      rec.onresult = (ev) => send(ev.results[0][0].transcript);
+      ring.addEventListener('click', () => { speechSynthesis?.cancel(); rec.start(); });
+    } else {
+      $('hint').textContent = 'Voice input needs Chrome or Edge, so type below';
+    }
+  </script>
+</body>
+</html>

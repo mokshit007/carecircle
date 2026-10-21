@@ -1,0 +1,22 @@
+﻿{
+  "name": "carecircle",
+  "version": "1.0.0",
+  "description": "CareCircle: an Alexa+ MCP server that helps older adults manage medications by voice and keeps family caregivers in the loop",
+  "type": "module",
+  "main": "src/server.js",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.9"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "smoke": "node scripts/smoke.js",
+    "reset": "node -e \"import('./src/store.js').then(m => new m.Store().reset())\""
+  },
+  "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "express": "^5.3.0",
+    "zod": "^4.6.7"
+  }
+}

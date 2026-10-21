@@ -1,0 +1,76 @@
+:root {
+  --bg: #f6f4ef;
+  --card: #ffffff;
+  --ink: #1f2430;
+  --muted: #6b7280;
+  --line: #e7e3da;
+  --accent: #0b7a75;
+  --accent-soft: #e2f3f1;
+  --taken: #1f8a4c;
+  --taken-soft: #e3f4ea;
+  --due: #b7791f;
+  --due-soft: #fdf3e1;
+  --missed: #c0392b;
+  --missed-soft: #fbe8e6;
+  --upcoming: #64748b;
+  --upcoming-soft: #eef1f5;
+  --radius: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --card: #1b1f27; --ink: #e8eaee; --muted: #9aa3b2; --line: #2a303b;
+    --accent: #3cc4bc; --accent-soft: #15332f;
+    --taken-soft: #16301f; --due-soft: #33280f; --missed-soft: #3a1a17; --upcoming-soft: #222833;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+header.top {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  padding: 20px 24px; border-bottom: 1px solid var(--line); background: var(--card);
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand .logo {
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: white; font-weight: 700; font-size: 18px;
+}
+.brand h1 { font-size: 20px; margin: 0; }
+.brand p { margin: 0; color: var(--muted); font-size: 14px; }
+nav a { color: var(--accent); text-decoration: none; font-weight: 600; margin-left: 16px; }
+main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+.card h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 12px; }
+.span-4 { grid-column: span 4; } .span-5 { grid-column: span 5; } .span-7 { grid-column: span 7; } .span-8 { grid-column: span 8; } .span-12 { grid-column: span 12; }
+@media (max-width: 900px) { .span-4, .span-5, .span-7, .span-8 { grid-column: span 12; } }
+.stat { font-size: 40px; font-weight: 700; line-height: 1.1; }
+.stat small { font-size: 15px; color: var(--muted); font-weight: 500; }
+.muted { color: var(--muted); }
+ul.plain { list-style: none; margin: 0; padding: 0; }
+ul.plain li { padding: 10px 0; border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: center; }
+ul.plain li:first-child { border-top: 0; }
+.time { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 74px; }
+.grow { flex: 1; min-width: 0; }
+.chip { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+.chip.taken { background: var(--taken-soft); color: var(--taken); }
+.chip.skipped, .chip.upcoming { background: var(--upcoming-soft); color: var(--upcoming); }
+.chip.due { background: var(--due-soft); color: var(--due); }
+.chip.missed, .chip.urgent { background: var(--missed-soft); color: var(--missed); }
+.chip.info { background: var(--accent-soft); color: var(--accent); }
+.bars { display: flex; gap: 8px; align-items: flex-end; height: 120px; margin-top: 8px; }
+.bar { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+.bar .fill { width: 100%; max-width: 38px; border-radius: 6px 6px 2px 2px; background: var(--accent); min-height: 3px; }
+.bar .fill.low { background: var(--due); }
+.bar span { font-size: 12px; color: var(--muted); }
+.alert.urgent { border-left: 4px solid var(--missed); padding-left: 10px; }
+button {
+  font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  border-radius: 999px; padding: 6px 14px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: white; }
+.mood { font-size: 20px; }
+.empty { color: var(--muted); font-style: italic; padding: 8px 0; }

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CareCircle · Family Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <div class="logo">C</div>
+      <div>
+        <h1>CareCircle</h1>
+        <p id="subtitle">Family dashboard</p>
+      </div>
+    </div>
+    <nav>
+      <a href="voice.html">Alexa+ voice console →</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="grid">
+      <section class="card span-4">
+        <h2>Today</h2>
+        <div class="stat" id="today-stat">–</div>
+        <p class="muted" id="today-note"></p>
+      </section>
+      <section class="card span-4">
+        <h2>7-day adherence</h2>
+        <div class="stat" id="adh-stat">–</div>
+        <div class="bars" id="adh-bars"></div>
+      </section>
+      <section class="card span-4">
+        <h2>Next appointment</h2>
+        <div id="next-appt" class="empty">None scheduled</div>
+      </section>
+
+      <section class="card span-7">
+        <h2>Today's medications</h2>
+        <ul class="plain" id="schedule"></ul>
+      </section>
+      <section class="card span-5">
+        <h2>Alerts &amp; messages</h2>
+        <ul class="plain" id="alerts"></ul>
+      </section>
+
+      <section class="card span-7">
+        <h2>Wellbeing journal</h2>
+        <ul class="plain" id="journal"></ul>
+      </section>
+      <section class="card span-5">
+        <h2>Medication plan</h2>
+        <ul class="plain" id="plan"></ul>
+        <p class="muted" style="font-size:13px;margin-top:14px" id="footer"></p>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const moodFace = (m) => ['', '😞', '🙁', '😐', '🙂', '😄'][m] || '📝';
+    const ago = (iso) => {
+      const mins = Math.round((Date.now() - Date.parse(iso)) / 60000);
+      if (mins < 1) return 'just now';
+      if (mins < 60) return `${mins} min ago`;
+      if (mins < 1440) return `${Math.round(mins / 60)} h ago`;
+      return `${Math.round(mins / 1440)} d ago`;
+    };
+
+    async function ack(id) {
+      await fetch(`/api/alerts/${id}/ack`, { method: 'POST' });
+      refresh();
+    }
+
+    async function refresh() {
+      const s = await (await fetch('/api/state')).json();
+      const name = s.household.recipient;
+      $('subtitle').textContent = `Caring for ${name} · ${s.today.weekday} ${s.today.date}, ${s.today.now}`;
+
+      const slots = s.today.slots;
+      const taken = slots.filter((x) => x.status === 'taken').length;
+      const missed = slots.filter((x) => x.status === 'missed').length;
+      $('today-stat').innerHTML = `${taken}<small> / ${slots.length} doses taken</small>`;
+      $('today-note').textContent = missed ? `${missed} dose${missed > 1 ? 's' : ''} overdue` : 'Nothing overdue';
+
+      $('adh-stat').innerHTML = `${s.adherence.rate}%<small> of ${s.adherence.scheduled} doses</small>`;
+      $('adh-bars').innerHTML = s.adherence.perDay.map((d) => {
+        const pct = d.scheduled ? Math.round((d.taken / d.scheduled) * 100) : 0;
+        const day = new Date(d.date + 'T12:00').toLocaleDateString(undefined, { weekday: 'short' });
+        return `<div class="bar" title="${d.date}: ${d.taken}/${d.scheduled}${d.missed.length ? ' · missed ' + esc(d.missed.join(', ')) : ''}">
+          <div class="fill ${pct < 90 ? 'low' : ''}" style="height:${d.scheduled ? pct : 0}%"></div><span>${day}</span></div>`;
+      }).join('');
+
+      const appt = s.appointments[0];
+      $('next-appt').className = appt ? '' : 'empty';
+      $('next-appt').innerHTML = appt
+        ? `<div style="font-weight:600;font-size:18px">${esc(appt.title)}</div>
+           <div>${appt.inDays === 0 ? 'Today' : appt.inDays === 1 ? 'Tomorrow' : `In ${appt.inDays} days`} · ${esc(appt.spokenTime)}</div>
+           <div class="muted">${esc(appt.location)}</div>${appt.notes ? `<div class="muted">📋 ${esc(appt.notes)}</div>` : ''}`
+        : 'None scheduled';
+
+      $('schedule').innerHTML = slots.map((x) => `
+        <li><span class="time">${esc(x.spokenTime)}</span>
+          <span class="grow"><strong>${esc(x.medication)}</strong> ${esc(x.dose)}
+            <span class="muted">${x.withFood ? '· with food' : ''}${x.loggedAt ? ' · logged ' + esc(x.loggedAt.slice(11)) : ''}</span></span>
+          <span class="chip ${x.status}">${x.status}</span></li>`).join('') || '<li class="empty">No medications</li>';
+
+      $('alerts').innerHTML = s.alerts.map((a) => `
+        <li class="alert ${a.urgency}" style="${a.acknowledged ? 'opacity:.55' : ''}">
+          <span class="grow">${esc(a.message)}<br><span class="muted" style="font-size:13px">${a.type.replace('_', ' ')} · ${ago(a.at)}</span></span>
+          ${a.acknowledged ? '<span class="chip info">seen</span>' : `<button onclick="ack('${a.id}')">Seen</button>`}
+        </li>`).join('') || '<li class="empty">No alerts. All quiet.</li>';
+
+      $('journal').innerHTML = s.wellbeing.map((w) => `
+        <li class="${w.urgent ? 'alert urgent' : ''}"><span class="mood">${moodFace(w.mood)}</span>
+          <span class="grow">${esc(w.note) || '<span class="muted">Check-in</span>'}
+            ${w.symptoms.length ? `<br><span class="muted">Symptoms: ${esc(w.symptoms.join(', '))}</span>` : ''}</span>
+          <span class="muted" style="font-size:13px;white-space:nowrap">${esc(w.at.replace('T', ' '))}</span></li>`).join('')
+        || '<li class="empty">No entries yet</li>';
+
+      $('plan').innerHTML = s.medications.map((m) => `
+        <li><span class="grow"><strong>${esc(m.name)}</strong> ${esc(m.dose)}<br>
+          <span class="muted">${m.times.join(', ')}${m.instructions ? ' · ' + esc(m.instructions) : ''}</span></span></li>`).join('');
+
+      $('footer').textContent = `MCP protocol ${s.assistant.protocolVersion} · Assistant: ${s.assistant.bedrock ? 'Claude on Amazon Bedrock (' + s.assistant.model + ')' : 'offline demo router'} · Caregivers: ${s.caregivers.map((c) => `${c.name} (${c.relation})`).join(', ')}`;
+    }
+
+    refresh();
+    setInterval(refresh, 4000);
+  </script>
+</body>
+</html>
