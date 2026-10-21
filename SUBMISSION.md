@@ -1,7 +1,7 @@
 # Submission kit (Amazon Developer Hackathon)
 
 **Primary track:** Alexa+ (self-hosted MCP server, spec 2025-11-25, Streamable HTTP, plus MCP Apps views and an Agent Skill)
-**Mini challenges:** AWS Builder (Claude on Amazon Bedrock, Amazon SNS, AgentCore-ready container) · Open Source (MIT repo)
+**Mini challenges:** Open Source (MIT repo). Add AWS Builder only if you get Bedrock running and show it in the video.
 **Deadline:** 24 Oct 2026, 12:30 AM (as shown on Devpost)
 
 ---
@@ -52,22 +52,32 @@ for AgentCore Runtime.
 
 ## Demo video script (target 2:50)
 
-Before recording: `.env` with `BEDROCK_ENABLED=true` and `CARECIRCLE_CLOCK=13:30`, `npm start`, open the dashboard and
-the Echo simulator side by side, and click **Reset demo** (this replays the 8 AM reminder).
+Two hosts show the same MCP server:
+- **Claude desktop app**: a real, independent MCP host. The AI picks CareCircle's tools itself and renders the MCP Apps views in the chat.
+- **Echo Show simulator** (`/echo.html`): shows what only a home device can, such as spoken reminders popping up, the same server serving three family Echos, and Ring events arriving live.
+
+**Before recording**
+1. Run `npm run demo`. It starts fresh demo data with the clock pinned to 1:30 PM, so one dose is overdue.
+2. One time only: quit the Claude desktop app completely (including the tray icon), run `npm run install-claude`, then reopen Claude. That adds the `carecircle-priya` and `carecircle-margaret` connectors. In each new chat, enable only the one you need from the connectors menu.
+3. Open three windows: the dashboard (`/`), the Echo simulator (`/echo.html`) and Claude.
+4. Rehearse once, then run `npm run demo` again so the data is fresh for the real take.
 
 | Time | Show | Say |
 |---|---|---|
-| 0:00–0:15 | Dashboard, routine check card in red | "Amazon retired Alexa Together in 2024. Families still need it. CareCircle brings it back with Alexa+ and MCP, for the whole family." |
-| 0:15–0:45 | Echo simulator as **Margaret**: the reminder pops up and is spoken. Say "What do I take today?" → Today view on screen → tap **I took it** | "Margaret's Echo reminds her and shows her medicines. One tap, or one sentence, and it's logged. Under the hood: an MCP Apps view calling an app-only tool." |
-| 0:45–1:05 | Margaret: "I took my Metformin" again | "Older adults repeat themselves. CareCircle won't log the evening dose five hours early; it reassures her and quietly tells the family." |
-| 1:05–1:50 | Switch to **Priya's** Echo: "How's Mum doing?" → care-circle view. Then "Has anything changed?" | "Same MCP server, different tools. Priya hears that Mum's routine has shifted: Ring saw the front door open at 2 or 3 AM three nights running, her evening doses slipped and her mornings got later. Claude on Bedrock explains it, without diagnosing." |
-| 1:50–2:15 | Priya: "I'll drive her to cardiology" → Sam's view updates; Margaret's Echo announces it. Then "Prepare a brief for the cardiology visit" → dashboard brief dialog | "Family tasks get claimed by voice, and the doctor gets a one-page brief." |
-| 2:15–2:35 | Dashboard: click **Motion at 2:47 AM** → live alert; Margaret: "I fell in the kitchen" → urgent alert | "Real Ring webhooks, HMAC-verified. Emergencies are caught by rules on the server, not left to the model." |
-| 2:35–2:50 | README architecture + `npm run smoke` passing | "MCP 2025-11-25 over Streamable HTTP, MCP Apps, an Agent Skill, Ring, and Claude on Amazon Bedrock. Open source. CareCircle." |
+| 0:00–0:15 | Dashboard, routine check card in red | "Amazon retired Alexa Together in 2024. Families still need it. CareCircle brings it back as an Alexa+ MCP server for the whole family." |
+| 0:15–0:40 | Echo simulator as **Margaret**: the 8 AM reminder pops up and is spoken (click **Reset demo** on the dashboard to replay it). Click "What do I take today?" → Today view → tap **I took it** | "Margaret's Echo reminds her and shows her medicines. One tap, or one sentence, and it's logged. That screen is an MCP Apps view calling an app-only tool." |
+| 0:40–0:55 | Margaret: "I took my Metformin" again | "Older adults repeat themselves. CareCircle won't log the evening dose five hours early. It reassures her and quietly tells the family." |
+| 0:55–1:45 | **Claude desktop**, `carecircle-priya` enabled: type "How's Mum doing?" → care-circle view renders in chat. Then "Has anything changed with her routine? Should I be worried?" | "Here's the same server in a completely independent MCP host. Priya gets a different toolset. The AI pulls her status, and the server's drift detector has spotted that Ring saw the front door open at 2 or 3 AM three nights running, her evening doses slipped and her mornings got later." |
+| 1:45–2:10 | In Claude: "I'll drive her to the cardiology appointment, and tell her I'll call tonight." Cut to the Echo simulator on Margaret: the announcement arrives | "Family tasks get claimed by voice, and Mum hears about it on her own Echo." |
+| 2:10–2:30 | Dashboard: **Motion at 2:47 AM** → live alert. Echo as Margaret: "I fell in the kitchen" → urgent alert on Priya's devices | "Real Ring webhooks, HMAC-verified. Emergencies are caught by rules on the server, not left to the model." |
+| 2:30–2:50 | Dashboard **Visit brief** dialog, then README architecture and `npm run smoke` passing | "And the doctor gets a one-page brief. MCP 2025-11-25 over Streamable HTTP, role-scoped tools, MCP Apps, an Agent Skill and Ring. Open source. CareCircle." |
+
+If MCP Apps views don't render in your Claude desktop version, the tools still work and reply in text. Show the views
+in the Echo simulator instead.
 
 ---
 
-## AWS Builder: integration details
+## AWS Builder: integration details (only if you enable Bedrock)
 
 - **Claude on Amazon Bedrock** (`@anthropic-ai/bedrock-sdk`, Mantle Messages API), in [src/bedrock.js](src/bedrock.js) and [src/agent.js](src/agent.js):
   agent loop over MCP-discovered tools, routine-drift explanations, weekly digest, doctor-visit brief, and pill-bottle
@@ -122,7 +132,8 @@ hardware.
 
 ## Checklist
 
-- [ ] Run once with `BEDROCK_ENABLED=true` and capture the Claude explanations in the video
+- [ ] Quit Claude, run `npm run install-claude`, reopen Claude and check the CareCircle connectors appear
+- [ ] (Optional) AWS account + Bedrock → `BEDROCK_ENABLED=true`, then add the AWS Builder mini challenge
 - [ ] Record the video (under 3 min, English, public on YouTube or Vimeo, no copyrighted music)
 - [ ] Rewrite the feedback and friction log in your own words
 - [ ] Devpost: Alexa+ track, AWS Builder and Open Source mini challenges, repo link, video link

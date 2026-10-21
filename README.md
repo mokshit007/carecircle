@@ -93,6 +93,28 @@ End-to-end test (both roles, MCP Apps resources, Ring signatures, auth):
 npm run smoke
 ```
 
+### Use it from the Claude desktop app (or any stdio MCP host)
+
+[`scripts/claude-bridge.js`](scripts/claude-bridge.js) connects a stdio MCP host to the running server as one
+person, forwarding every message, so the role-scoped tools and MCP Apps views come through as-is.
+
+Quit the Claude desktop app completely, run `npm run install-claude`, then start CareCircle and reopen Claude.
+The installer backs up your config and adds these entries (you can also add them by hand):
+
+```json
+{
+  "mcpServers": {
+    "carecircle-priya":    { "command": "node", "args": ["<repo>/scripts/claude-bridge.js", "--as", "priya"] },
+    "carecircle-margaret": { "command": "node", "args": ["<repo>/scripts/claude-bridge.js", "--as", "margaret"] }
+  }
+}
+```
+
+Enable one at a time per chat, then try "How's Mum doing?" as Priya or "I took my Metformin" as Margaret.
+`node scripts/bridge-check.js priya` checks the bridge from the command line.
+
+For a repeatable demo, `npm run demo` starts with fresh data and the household clock pinned to 1:30 PM.
+
 Try it in MCP Inspector:
 
 ```bash
