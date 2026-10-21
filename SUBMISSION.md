@@ -38,7 +38,14 @@ appointments that need a ride become family tasks that siblings claim by voice.
 
 **Safety in the server, not the prompt.** Falls, chest pain and breathing trouble are caught by deterministic rules
 and alert the family instantly. A double-dose guard stops a repeated "I took my Metformin" from logging the evening
-dose early, tells Margaret she doesn't need another, and lets the family know.
+dose early, tells Margaret she doesn't need another, and lets the family know. A quiet-morning wellness check covers
+the most worrying case, silence: no voice, no medicine and no check-in by 10:30 means her Echo checks in, and if
+she doesn't answer, the family is told.
+
+**Ready for real account linking.** Assistants link with OAuth 2.1 (discovery, dynamic client registration, PKCE,
+refresh rotation). The consent page binds each token to one person and role, and tokens are stored only as hashes.
+Locked-down mode requires sign-in everywhere. 15 unit tests and an end-to-end test (including the full OAuth flow)
+run in GitHub Actions.
 
 **Built with:** MCP TypeScript SDK (Streamable HTTP, protocol 2025-11-25, stateless, annotations, structuredContent,
 icons), MCP Apps (`@modelcontextprotocol/ext-apps`), an Agent Skill (SKILL.md) that the agent loads as its
@@ -69,7 +76,7 @@ Two hosts show the same MCP server:
 | 0:40–0:55 | Margaret: "I took my Metformin" again | "Older adults repeat themselves. CareCircle won't log the evening dose five hours early. It reassures her and quietly tells the family." |
 | 0:55–1:45 | **Claude desktop**, `carecircle-priya` enabled: type "How's Mum doing?" → care-circle view renders in chat. Then "Has anything changed with her routine? Should I be worried?" | "Here's the same server in a completely independent MCP host. Priya gets a different toolset. The AI pulls her status, and the server's drift detector has spotted that Ring saw the front door open at 2 or 3 AM three nights running, her evening doses slipped and her mornings got later." |
 | 1:45–2:10 | In Claude: "I'll drive her to the cardiology appointment, and tell her I'll call tonight." Cut to the Echo simulator on Margaret: the announcement arrives | "Family tasks get claimed by voice, and Mum hears about it on her own Echo." |
-| 2:10–2:30 | Dashboard: **Motion at 2:47 AM** → live alert. Echo as Margaret: "I fell in the kitchen" → urgent alert on Priya's devices | "Real Ring webhooks, HMAC-verified. Emergencies are caught by rules on the server, not left to the model." |
+| 2:10–2:30 | Dashboard: **Motion at 2:47 AM** → live alert. Then **Simulate a quiet morning** → Margaret's Echo shows the check-in, and the family alert lands | "Real Ring webhooks, HMAC-verified. And the scariest case is silence: if Mum hasn't spoken to Alexa by mid-morning, her Echo checks in, and if she doesn't answer, the family knows." |
 | 2:30–2:50 | Dashboard **Visit brief** dialog, then README architecture and `npm run smoke` passing | "And the doctor gets a one-page brief. MCP 2025-11-25 over Streamable HTTP, role-scoped tools, MCP Apps, an Agent Skill and Ring. Open source. CareCircle." |
 
 The views are verified in the official MCP Apps reference host (see README). If MCP Apps views don't render in your Claude desktop version, the tools still work and reply in text. Show the views

@@ -1,7 +1,6 @@
 // Fan-out for everything proactive: spoken announcements on a person's Echo, the family alert
 // feed, live updates to open dashboards, and (optionally) Amazon SNS text/email to caregivers.
 import { EventEmitter } from 'node:events';
-import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
 import { newId } from './store.js';
 
 const SNS_TOPIC_ARN = process.env.SNS_TOPIC_ARN;
@@ -14,6 +13,7 @@ export function createNotifier(store) {
   async function publishSns(subject, message) {
     if (!SNS_TOPIC_ARN) return;
     try {
+      const { SNSClient, PublishCommand } = await import('@aws-sdk/client-sns');
       sns ??= new SNSClient({ region: process.env.AWS_REGION || 'us-east-1' });
       await sns.send(new PublishCommand({ TopicArn: SNS_TOPIC_ARN, Subject: subject.slice(0, 99), Message: message }));
     } catch (err) {

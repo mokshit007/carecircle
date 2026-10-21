@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Start server
+        run: |
+          CARECIRCLE_CLOCK=13:30 node src/server.js > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:3000/api/me > /dev/null && break; sleep 1; done
+      - name: End-to-end smoke test (MCP, MCP Apps, Ring, OAuth)
+        run: npm run smoke
+      - name: Server log
+        if: always()
+        run: cat server.log

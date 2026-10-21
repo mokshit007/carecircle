@@ -27,12 +27,25 @@ AgentCore Runtime can host MCP servers. It expects a container serving stateless
 Check the current AgentCore Runtime documentation for exact console and CLI steps. The demo data store is a JSON file;
 for a hosted deployment, swap `src/store.js` for DynamoDB (one item per circle) so state survives restarts.
 
+## Production checklist
+
+```bash
+ALLOW_ANONYMOUS=false   # every /mcp and /api call needs a token
+DEMO_TOKENS=false       # no fixed demo tokens
+PUBLIC_URL=https://carecircle.example.com
+ALLOWED_HOSTS=carecircle.example.com
+RING_WEBHOOK_SECRET=<your Ring app's HMAC key>
+```
+
+Change the demo PINs in the data file (or replace the consent page's PIN check with your identity provider).
+
 ## Exposing the endpoint to Alexa+ or another MCP client
 
-1. Serve it over HTTPS (AgentCore, an AWS load balancer, or a tunnel for testing).
+1. Serve it over HTTPS (AgentCore, an AWS load balancer, or a tunnel for testing) and set `PUBLIC_URL` to that address.
 2. Register `https://<host>/mcp` as a Streamable HTTP MCP server.
-3. Give each household member's assistant their own CareCircle token (`Authorization: Bearer …`), so the server can
-   scope tools by role. Account linking via OAuth is the production path for issuing those tokens.
+3. The client discovers OAuth from the `401` response (`WWW-Authenticate: Bearer resource_metadata=…`), registers
+   itself, and sends the user to CareCircle's consent page. There, they choose who the assistant is for and enter that
+   person's PIN, and the assistant receives a token bound to that person and role.
 
 ## Ring webhooks
 

@@ -15,13 +15,13 @@ const SKILL_FILE = path.resolve('skills', 'carecircle-care-companion', 'SKILL.md
 // The Agent Skill is the single source of truth for how an assistant should run CareCircle.
 const skillText = () => fs.readFileSync(SKILL_FILE, 'utf8').replace(/^---[\s\S]*?---\s*/, '');
 
-export async function connectAs(mcpUrl, person) {
+export async function connectAs(mcpUrl, token) {
   const client = new Client(
     { name: 'carecircle-echo-simulator', version: '2.0.0' },
     { capabilities: { extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: [UI_MIME] } } } },
   );
   const transport = new StreamableHTTPClientTransport(new URL(mcpUrl), {
-    requestInit: { headers: { Authorization: `Bearer ${person.token}` } },
+    requestInit: { headers: { Authorization: `Bearer ${token}` } },
   });
   await client.connect(transport);
   return client;
@@ -30,8 +30,8 @@ export async function connectAs(mcpUrl, person) {
 const visibility = (tool) => tool._meta?.ui?.visibility ?? ['model', 'app'];
 const textContent = (result) => result.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n');
 
-export async function converse({ mcpUrl, person, conversationId, utterance }) {
-  const client = await connectAs(mcpUrl, person);
+export async function converse({ mcpUrl, person, token, conversationId, utterance, recipientName }) {
+  const client = await connectAs(mcpUrl, token);
   const trace = [];
   let view = null; // last tool result that asked for a UI
 
@@ -47,7 +47,7 @@ export async function converse({ mcpUrl, person, conversationId, utterance }) {
     const modelTools = tools.filter((t) => visibility(t).includes('model'));
     const reply = bedrockEnabled()
       ? await bedrockLoop({ client, person, conversationId, utterance, modelTools, callTool })
-      : await offlineRouter({ person, utterance, tools: modelTools, callTool });
+      : await offlineRouter({ person, utterance, tools: modelTools, callTool, recipientName });
 
     let ui = null;
     if (view) {
@@ -62,8 +62,8 @@ export async function converse({ mcpUrl, person, conversationId, utterance }) {
 }
 
 // Calls made by an MCP Apps view (e.g. tapping "I took it"); only tools visible to apps are allowed.
-export async function appToolCall({ mcpUrl, person, name, args }) {
-  const client = await connectAs(mcpUrl, person);
+export async function appToolCall({ mcpUrl, token, name, args }) {
+  const client = await connectAs(mcpUrl, token);
   try {
     const { tools } = await client.listTools();
     const tool = tools.find((t) => t.name === name);
@@ -100,7 +100,7 @@ async function bedrockLoop({ person, conversationId, utterance, modelTools, call
   const claudeTools = modelTools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema }));
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await bedrock().messages.create({
+    const response = await (await bedrock()).messages.create({
       model: BEDROCK_MODEL,
       max_tokens: 4000,
       output_config: { effort: 'low' },
@@ -133,7 +133,7 @@ async function bedrockLoop({ person, conversationId, utterance, modelTools, call
 }
 
 // Keyword routing so the simulator still exercises the real MCP tools without AWS credentials.
-async function offlineRouter({ person, utterance, tools, callTool }) {
+async function offlineRouter({ person, utterance, tools, callTool, recipientName = '' }) {
   const u = utterance.toLowerCase();
   const has = (name) => tools.find((t) => t.name === name);
   const call = async (name, args = {}) => {
@@ -163,7 +163,8 @@ async function offlineRouter({ person, utterance, tools, callTool }) {
   } else {
     if (/^(i'?ll|i will|i can|i'm going to)\b/.test(u)) return call('claim_task', { task: u });
     if (/picked up|done with|finished|i got the|collected/.test(u)) return call('complete_task', { task: u });
-    if (/^(tell|let|message)\s+(mum|mom|mother|her|grandma|nan|margaret)/.test(u)) {
+    const recipientWords = ['mum', 'mom', 'mother', 'her', 'grandma', 'gran', 'nan', 'dad', 'father', 'him', 'grandpa', recipientName.toLowerCase()].filter(Boolean);
+    if (new RegExp(`^(tell|let|message)\\s+(${recipientWords.join('|')})\\b`).test(u)) {
       return call('message_recipient', { message: utterance.replace(/^(tell|let|message)\s+\w+\s+(know\s+)?(that\s+)?/i, '') });
     }
     if (/brief|prepare|doctor visit/.test(u)) return call('prepare_visit_brief', {});

@@ -11,6 +11,7 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/server.js",
     "demo": "node --env-file-if-exists=.env scripts/demo.js",
+    "test": "node --test test/*.test.js",
     "smoke": "node scripts/smoke.js",
     "bridge": "node scripts/claude-bridge.js",
     "install-claude": "node scripts/install-claude-connector.js",

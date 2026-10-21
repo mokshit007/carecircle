@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CareCircle · Family Dashboard</title>
   <link rel="stylesheet" href="styles.css">
+  <script src="auth.js"></script>
 </head>
 <body>
   <header class="top">
@@ -86,6 +87,7 @@
         <h2>How CareCircle is set up</h2>
         <ul class="list small" id="setup"></ul>
         <div class="row noprint" style="margin-top:12px">
+          <button id="quiet">Simulate a quiet morning</button>
           <button id="tick">Run reminder engine now</button>
           <button id="reset">Reset demo</button>
         </div>
@@ -228,6 +230,8 @@ function render() {
     `<b>MCP server</b>: protocol ${esc(s.assistant.protocolVersion)}, Streamable HTTP at <code>/mcp</code>, one toolset per role`,
     `<b>People</b>: ${s.people.map((p) => `${esc(p.name)} (${p.role === 'recipient' ? 'care recipient' : esc(p.relation)}, ${esc(p.device)})`).join(', ')}`,
     `<b>Reminders</b>: when due → again after ${c.escalation.secondReminderAfter} min → family after ${c.escalation.alertFamilyAfter} min · quiet ${c.quietHours.start}–${c.quietHours.end}`,
+    `<b>Wellness check</b>: no activity by ${c.wellnessCheck.by} → check-in on the Echo → family after ${c.wellnessCheck.alertFamilyAfter} min`,
+    `<b>Account linking</b>: OAuth 2.1 with PKCE (consent page with person + PIN) · demo tokens for the simulator`,
     `<b>AI</b>: ${s.assistant.bedrock ? 'Claude on Amazon Bedrock (' + esc(s.assistant.model) + ')' : 'Bedrock off: template fallbacks'} · <b>SMS/email</b>: ${s.assistant.sns ? 'Amazon SNS on' : 'Amazon SNS off'}`,
     `<b>Ring</b>: ${s.ringDevices.map((d) => esc(d.name)).join(', ')} via signed webhooks (v1.1)`,
   ].map((x) => `<li><span class="grow">${x}</span></li>`).join('');
@@ -267,6 +271,10 @@ $('explain').addEventListener('click', async () => {
 
 $('viewer').addEventListener('change', (e) => { viewerId = e.target.value; history.replaceState(null, '', '?as=' + viewerId); refresh(); });
 $('tick').addEventListener('click', async () => { await post('/api/tick'); toast('Reminder engine ran'); });
+$('quiet').addEventListener('click', async () => {
+  await post('/api/simulate/quiet-morning');
+  toast('Replayed a morning with no activity: the Echo check-in went unanswered, so the family was told.');
+});
 $('reset').addEventListener('click', async () => { if (confirm('Reset all demo data?')) { narrative = null; await post('/api/reset'); refresh(); } });
 
 // Pill bottle scan → Claude vision on Bedrock → confirm → add to plan
@@ -318,7 +326,7 @@ function downscale(file, max = 1600) {
 }
 
 // Live updates
-const events = new EventSource('/api/events');
+const events = ccEventSource('/api/events');
 let pending;
 events.addEventListener('changed', () => { clearTimeout(pending); pending = setTimeout(refresh, 300); });
 events.onerror = () => { $('liveChip').textContent = 'offline'; };

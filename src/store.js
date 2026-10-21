@@ -1,26 +1,45 @@
 // JSON-file store for one care circle. Small and transparent on purpose; swap for DynamoDB in production.
 import fs from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { localParts, householdNow, toMinutes, fromMinutes, addDays } from './time.js';
 
 const DATA_FILE = process.env.CARECIRCLE_DATA || path.resolve('data', 'carecircle.json');
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export const newId = () => randomUUID().slice(0, 8);
+export const sha256 = (value) => createHash('sha256').update(String(value)).digest();
+
+// Constant-time comparison of secrets (tokens, PINs), so response timing can't leak them.
+export function secretEquals(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || !a || !b) return false;
+  return timingSafeEqual(sha256(a), sha256(b));
+}
 
 export class Store {
   constructor(file = DATA_FILE) {
     this.file = file;
     this.listeners = new Set();
-    const existing = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+    let existing = null;
+    try {
+      existing = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+    } catch (err) {
+      // A damaged file is kept for inspection rather than silently overwritten.
+      const damaged = `${file}.damaged-${Date.now()}`;
+      fs.renameSync(file, damaged);
+      console.error(`Data file was unreadable (${err.message}); moved to ${damaged} and starting fresh.`);
+    }
     this.data = existing?.version === SCHEMA_VERSION ? existing : seedDemo();
+    this.data.oauth ??= { clients: {}, tokens: {} };
     if (this.data !== existing) this.save();
   }
 
+  // Write to a temp file, then rename over the original, so a crash mid-write never leaves a half-written file.
   save() {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    fs.writeFileSync(this.file, JSON.stringify(this.data, null, 2));
+    const tmp = `${this.file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2));
+    fs.renameSync(tmp, this.file);
     for (const fn of this.listeners) fn();
   }
 
@@ -29,8 +48,11 @@ export class Store {
     return () => this.listeners.delete(fn);
   }
 
+  // Resets the demo story but keeps linked accounts, so connected assistants stay connected.
   reset() {
+    const oauth = this.data.oauth;
     this.data = seedDemo();
+    this.data.oauth = oauth ?? { clients: {}, tokens: {} };
     this.save();
   }
 
@@ -51,7 +73,11 @@ export class Store {
   get recipient() { return this.people.find((p) => p.role === 'recipient'); }
   get caregivers() { return this.people.filter((p) => p.role === 'caregiver'); }
   person(id) { return this.people.find((p) => p.id === id); }
-  personByToken(token) { return this.people.find((p) => p.token === token); }
+  // Fixed per-person tokens are for the demo simulator and local tools; real devices link with OAuth.
+  personByToken(token) {
+    if (process.env.DEMO_TOKENS === 'false') return null;
+    return this.people.find((p) => secretEquals(p.token, token)) ?? null;
+  }
 }
 
 // Deterministic PRNG so the demo history is identical on every reset.
@@ -75,11 +101,12 @@ export function seedDemo() {
   const jitter = (base, spread) => Math.round(base + (rand() - 0.5) * 2 * spread);
 
   const people = [
-    { id: 'margaret', name: 'Margaret', role: 'recipient', device: 'Kitchen Echo Show', token: 'margaret-echo-demo' },
-    { id: 'priya', name: 'Priya', role: 'caregiver', relation: 'daughter', device: "Priya's Echo Show", token: 'priya-echo-demo',
-      phone: '', email: '', notify: ['urgent', 'escalation', 'drift', 'tasks', 'messages'] },
-    { id: 'sam', name: 'Sam', role: 'caregiver', relation: 'grandson', device: "Sam's Echo Dot", token: 'sam-echo-demo',
-      phone: '', email: '', notify: ['urgent', 'tasks', 'messages'] },
+    // `pin` is the demo PIN each person enters when linking an assistant to CareCircle (OAuth consent page).
+    { id: 'margaret', name: 'Margaret', role: 'recipient', device: 'Kitchen Echo Show', token: 'margaret-echo-demo', pin: '1111' },
+    { id: 'priya', name: 'Priya', role: 'caregiver', relation: 'daughter', device: "Priya's Echo Show", token: 'priya-echo-demo', pin: '2222',
+      phone: '', email: '', notify: ['urgent', 'escalation', 'drift', 'tasks', 'messages', 'wellness'] },
+    { id: 'sam', name: 'Sam', role: 'caregiver', relation: 'grandson', device: "Sam's Echo Dot", token: 'sam-echo-demo', pin: '3333',
+      phone: '', email: '', notify: ['urgent', 'tasks', 'messages', 'wellness'] },
   ];
 
   const medications = [
@@ -170,6 +197,8 @@ export function seedDemo() {
       quietHours: { start: '22:30', end: '07:00' },
       nightWindow: { start: '00:00', end: '05:00' },
       refillWarningDays: 7,
+      // If the recipient hasn't interacted at all by this time, check in on the Echo; tell the family if still silent.
+      wellnessCheck: { by: '10:30', alertFamilyAfter: 45 },
     },
     people,
     medications,
@@ -187,5 +216,7 @@ export function seedDemo() {
     ringDevices,
     ringEvents,
     reminderState: {},
+    wellnessState: {},
+    oauth: { clients: {}, tokens: {} },
   };
 }

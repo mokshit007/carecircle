@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CareCircle · Echo Show Simulator</title>
   <link rel="stylesheet" href="styles.css">
+  <script src="auth.js"></script>
   <style>
     .layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
     @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
@@ -162,7 +163,7 @@ function selectPerson(id) {
 // ---------- Proactive announcements (server-sent events) ----------
 function subscribe() {
   events?.close();
-  events = new EventSource('/api/events?person=' + person.id);
+  events = ccEventSource('/api/events?person=' + person.id);
   events.addEventListener('announcement', (ev) => { queue.push(JSON.parse(ev.data)); if (queue.length === 1) showNext(); });
   events.addEventListener('changed', () => loadState());
 }
@@ -171,7 +172,7 @@ function showNext() {
   const a = queue[0];
   if (!a) return;
   $('announce').className = 'announce on ' + (a.kind === 'urgent' ? 'urgent' : '');
-  $('annKind').textContent = { reminder: 'Medicine reminder', family: 'From your family', urgent: 'Urgent', doorbell: 'Front door' }[a.kind] || 'CareCircle';
+  $('annKind').textContent = { reminder: 'Medicine reminder', family: 'From your family', urgent: 'Urgent', doorbell: 'Front door', checkin: 'Morning check-in' }[a.kind] || 'CareCircle';
   $('annText').textContent = a.text;
   light('notify');
   speak(a.text, () => light('notify'));

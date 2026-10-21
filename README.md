@@ -34,8 +34,13 @@ routine quietly starts to change, by combining her voice check-ins with **Ring**
    text or email. It respects quiet hours and opens family tasks for low supply and for appointments that need a ride.
 5. **Safety built into the server, not left to the model.** Emergency phrases (falls, chest pain, breathing trouble)
    are caught by deterministic rules and alert the family instantly. A **double-dose guard** refuses a likely repeat
-   "I took it" and tells the family. It never suggests taking another dose when someone is unsure.
-6. **An Agent Skill** ([`skills/carecircle-care-companion/SKILL.md`](skills/carecircle-care-companion/SKILL.md),
+   "I took it" and tells the family. It never suggests taking another dose when someone is unsure. A **quiet-morning
+   wellness check** catches the most worrying case of all, silence: if Mum hasn't spoken to Alexa, confirmed a
+   medicine or checked in by 10:30, her Echo checks in, and if she still doesn't answer, the family is told.
+6. **Real account linking.** Assistants connect with **OAuth 2.1** (discovery metadata, dynamic client registration,
+   PKCE, refresh-token rotation). The consent page asks who the assistant is for, plus their PIN, so every token is bound
+   to one person and their role. Tokens are stored only as SHA-256 hashes.
+7. **An Agent Skill** ([`skills/carecircle-care-companion/SKILL.md`](skills/carecircle-care-companion/SKILL.md),
    open Agent Skills format) teaches any agent how to run CareCircle: how to speak, safety rules, and which tool for
    which moment. The demo's Alexa stand-in loads it as its instructions.
 
@@ -63,6 +68,7 @@ routine quietly starts to change, by combining her voice check-ins with **Ring**
 | MCP Apps views | [src/views/](src/views), [src/views.js](src/views.js) | `text/html;profile=mcp-app`, `_meta.ui.resourceUri`, app-only tools; official `@modelcontextprotocol/ext-apps` runtime inlined |
 | Routine drift | [src/drift.js](src/drift.js) | six signals vs personal baseline → steady / watch / concern |
 | Escalation engine | [src/escalation.js](src/escalation.js), [src/notify.js](src/notify.js) | reminders, family alerts, refill and ride tasks, SNS |
+| Account linking | [src/oauth.js](src/oauth.js) | OAuth 2.1 via the SDK's authorization-server router: DCR, PKCE, consent page (person + PIN), refresh rotation, hashed tokens |
 | Ring | [src/ring.js](src/ring.js) | Ring Partner API webhook v1.1: `X-Signature` HMAC-SHA256 over raw body, `meta.request_id` de-dup, 200 before processing |
 | Claude on Bedrock | [src/bedrock.js](src/bedrock.js), [src/agent.js](src/agent.js) | `@anthropic-ai/bedrock-sdk` (Mantle); every AI feature has a deterministic fallback |
 | Agent Skill | [skills/carecircle-care-companion/SKILL.md](skills/carecircle-care-companion/SKILL.md) | loaded by the demo agent as its system instructions |
@@ -87,11 +93,22 @@ npm start
 Demo tokens: `margaret-echo-demo` (care recipient), `priya-echo-demo` and `sam-echo-demo` (caregivers). Without a
 token, local requests act as Margaret (turn that off with `ALLOW_ANONYMOUS=false`).
 
-End-to-end test (both roles, MCP Apps resources, Ring signatures, auth):
+### Tests
+
+```bash
+npm test
+```
+
+15 unit tests for the care logic: dose matching, the double-dose guard, emergency detection, routine drift,
+reminders and escalation, family tasks, the wellness check, Ring signatures and OAuth (codes, PKCE, rotation, hashing).
 
 ```bash
 npm run smoke
 ```
+
+The end-to-end test runs against a running server and covers both roles over MCP, MCP Apps resources, Ring webhook
+signatures, and the full OAuth flow over HTTP: discovery, registration, consent, PKCE token exchange, then MCP calls
+as the linked person. GitHub Actions runs both on Node 22 and 24 for every push.
 
 ### Use it from the Claude desktop app (or any stdio MCP host)
 
@@ -149,7 +166,9 @@ Copy `.env.example` to `.env` (it is loaded automatically).
 | `BEDROCK_MODEL_ID` | `anthropic.claude-opus-5-5` | Any Claude model enabled in your account |
 | `SNS_TOPIC_ARN` | – | Send urgent alerts, escalations and drift insights to caregivers by SMS or email |
 | `RING_WEBHOOK_SECRET` | demo secret | Your Ring app's HMAC signing key |
-| `ALLOW_ANONYMOUS` | `true` | `false` requires a bearer token on `/mcp` |
+| `ALLOW_ANONYMOUS` | `true` | `false` requires a token on `/mcp` and `/api` |
+| `DEMO_TOKENS` / `DEMO_MODE` | `true` / follows `ALLOW_ANONYMOUS` | Turn off fixed demo tokens / demo controls |
+| `PUBLIC_URL` | `http://localhost:3000` | Public address; becomes the OAuth issuer |
 | `HOST` / `PORT` / `ALLOWED_HOSTS` | `127.0.0.1` / `3000` / – | Bind address and Host allow-list when exposed |
 | `CARECIRCLE_TZ` | system | Household timezone |
 | `CARECIRCLE_CLOCK` | – | Pin the time of day (e.g. `13:30`) for repeatable demos |
@@ -159,12 +178,37 @@ Copy `.env.example` to `.env` (it is loaded automatically).
 The server is stateless, so it runs anywhere a container runs. See [docs/DEPLOY.md](docs/DEPLOY.md) for Docker, Amazon
 Bedrock AgentCore Runtime and exposing it to Alexa+.
 
-## Safety and privacy
+## Safety, privacy and security
 
 * CareCircle is a reminder, logging and coordination aid, **not a medical device**. It never recommends doses or
   medication changes, and its AI features are instructed to describe, not diagnose.
-* Emergency detection and the double-dose guard are deterministic and run on the server.
-* Each person only sees the tools for their role; tokens map to people on the server.
+* Emergency detection, the double-dose guard and the wellness check are deterministic and run on the server.
+* Each person only sees the tools for their role, and every token is bound to one person.
+* **Local demo vs. deployed.** By default the server is open (no sign-in) so the demo works out of the box, and it
+  says so at startup. Before exposing it, set `ALLOW_ANONYMOUS=false` (every `/mcp` and `/api` call needs a token),
+  `DEMO_TOKENS=false` and `PUBLIC_URL`. Demo controls (reset, simulated Ring events, choosing who you are) are then off.
+* Secrets (tokens, PINs, Ring signatures) are compared in constant time; OAuth tokens are stored as hashes; the data
+  file is written atomically; request bodies are size-limited.
+
+## Known limitations and what's next
+
+Being honest about where this stands:
+
+* **Not yet connected to a real Alexa+ device.** Alexa+ MCP integration is in preview; CareCircle is built to its
+  stated requirements (MCP 2025-11-25, Streamable HTTP, OAuth) and tested with MCP clients, Claude via the bridge, the
+  official MCP Apps reference host, and the included simulator.
+* **Proactive speech needs platform support.** Reminders and announcements reach the simulator over server-sent events.
+  On real Echo devices this needs a proactive-notification path from MCP servers, which is the top feature request in
+  [SUBMISSION.md](SUBMISSION.md).
+* **One care circle per server, JSON file storage.** Fine for a household or a pilot; production would move to
+  DynamoDB with one item per circle and many circles per deployment.
+* **Speaker identity.** Roles come from which account the device is linked to. On a shared device, Alexa voice ID
+  would be needed to tell Mum from a visiting caregiver.
+* **Drift thresholds are fixed.** They're explainable on purpose, but they aren't clinically validated; they should be
+  tuned with real (consented) data and care professionals.
+* **English only**, and PINs on the consent page are demo values.
+* **The Claude-on-Bedrock path is implemented but wasn't run during development** (no AWS account). Every AI feature
+  has a deterministic fallback, so the product works without it.
 
 ## License
 

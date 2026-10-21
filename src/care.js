@@ -254,7 +254,7 @@ export function claimTask(store, query, personId) {
   store.notify?.alertFamily({ type: 'task', urgency: 'info', topic: 'tasks', exclude: personId,
     message: `${person.name} is taking care of: ${task.title}.` });
   if (task.type === 'ride') {
-    store.notify?.announce(store.recipient.id, `${person.name} will drive you to your ${task.title.replace(/^Drive Margaret to (the )?/i, '')}.`, 'family');
+    store.notify?.announce(store.recipient.id, `${person.name} will drive you to your ${task.title.replace(new RegExp(`^Drive ${store.recipient.name} to (the )?`, 'i'), '').replace(/ \(.*\)$/, '')}.`, 'family');
   }
   return { ok: true, task, message: `Thanks, ${person.name}. You're down for "${task.title}". I've let the rest of the family know.` };
 }

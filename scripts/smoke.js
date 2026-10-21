@@ -75,6 +75,39 @@ check(sim.ok, 'signed Ring v1.1 button_press accepted');
 const unauth = await fetch(`${base}/mcp`, { method: 'POST', headers: { Authorization: 'Bearer nope', 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
   body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
 check(unauth.status === 401, 'unknown token rejected with 401');
+check(/resource_metadata="[^"]+oauth-protected-resource/.test(unauth.headers.get('www-authenticate') || ''), '401 points clients at OAuth discovery');
+
+// --- OAuth 2.1 account linking, end to end over HTTP ---
+console.log('\n=== OAuth account linking ===');
+const { createHash, randomBytes } = await import('node:crypto');
+const prm = await (await fetch(`${base}/.well-known/oauth-protected-resource/mcp`)).json();
+check(prm.authorization_servers?.length > 0, `protected resource metadata → ${prm.authorization_servers?.[0]}`);
+const asm = await (await fetch(`${base}/.well-known/oauth-authorization-server`)).json();
+check(asm.code_challenge_methods_supported?.includes('S256'), 'authorization server supports PKCE S256');
+const redirectUri = 'http://localhost:9999/callback';
+const reg = await (await fetch(`${base}/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ client_name: 'Smoke Test Assistant', redirect_uris: [redirectUri], token_endpoint_auth_method: 'none', grant_types: ['authorization_code', 'refresh_token'] }) })).json();
+check(Boolean(reg.client_id), 'dynamic client registration');
+const verifier = randomBytes(32).toString('base64url');
+const challenge = createHash('sha256').update(verifier).digest('base64url');
+const authorizeUrl = new URL(`${base}/authorize`);
+Object.entries({ response_type: 'code', client_id: reg.client_id, redirect_uri: redirectUri, code_challenge: challenge,
+  code_challenge_method: 'S256', state: 'xyz', resource: `${base.replace('127.0.0.1', 'localhost')}/mcp` }).forEach(([k, v]) => authorizeUrl.searchParams.set(k, v));
+const consentHtml = await (await fetch(authorizeUrl)).text();
+const requestId = consentHtml.match(/name="request_id" value="([^"]+)"/)?.[1];
+check(Boolean(requestId), 'consent page shown');
+const consent = await fetch(`${base}/oauth/consent`, { method: 'POST', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  body: new URLSearchParams({ request_id: requestId, person_id: 'priya', pin: '2222', decision: 'allow' }) });
+const location = new URL(consent.headers.get('location'));
+check(location.searchParams.get('state') === 'xyz' && location.searchParams.get('code'), 'consent redirects back with code + state');
+const tokenRes = await (await fetch(`${base}/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  body: new URLSearchParams({ grant_type: 'authorization_code', code: location.searchParams.get('code'), code_verifier: verifier,
+    redirect_uri: redirectUri, client_id: reg.client_id }) })).json();
+check(Boolean(tokenRes.access_token && tokenRes.refresh_token), 'token exchange with PKCE');
+const linked = await connect(tokenRes.access_token);
+const linkedTools = (await linked.client.listTools()).tools.map((t) => t.name);
+check(linkedTools.includes('get_circle_status'), 'linked assistant acts as Priya (caregiver tools)');
+await linked.client.close();
 
 console.log(failures ? `\n${failures} check(s) failed.` : '\nSmoke test passed.');
 process.exit(failures ? 1 : 0);

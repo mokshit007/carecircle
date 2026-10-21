@@ -1,14 +1,16 @@
 // Claude on Amazon Bedrock (Mantle / Messages API). Powers the simulated Alexa+ agent, the family
 // digest, routine-drift explanations, doctor-visit briefs and pill-bottle label reading.
 // Every caller has a deterministic fallback, so the product still works with Bedrock switched off.
-import { AnthropicBedrockMantle } from '@anthropic-ai/bedrock-sdk';
-
 export const BEDROCK_MODEL = process.env.BEDROCK_MODEL_ID || 'anthropic.claude-opus-5-5';
 export const bedrockEnabled = () => process.env.BEDROCK_ENABLED === 'true';
 
+// Loaded on first use, so the server starts fast and doesn't pull in AWS code when Bedrock is off.
 let client;
-export function bedrock() {
-  client ??= new AnthropicBedrockMantle({ awsRegion: process.env.AWS_REGION || 'us-east-1' });
+export async function bedrock() {
+  if (!client) {
+    const { AnthropicBedrockMantle } = await import('@anthropic-ai/bedrock-sdk');
+    client = new AnthropicBedrockMantle({ awsRegion: process.env.AWS_REGION || 'us-east-1' });
+  }
   return client;
 }
 
@@ -21,7 +23,7 @@ const CARE_VOICE =
   'suggest talking to their doctor or pharmacist.';
 
 async function complete(system, content, maxTokens = 2000) {
-  const response = await bedrock().messages.create({
+  const response = await (await bedrock()).messages.create({
     model: BEDROCK_MODEL,
     max_tokens: maxTokens,
     output_config: { effort: 'low' },
