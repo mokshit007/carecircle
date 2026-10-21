@@ -41,6 +41,19 @@ app.use(express.json({ limit: '12mb' }));
 
 // ---------- MCP ----------
 
+// Browser-based MCP hosts (e.g. the MCP Apps reference host) call /mcp cross-origin.
+// Auth is a bearer token, not cookies, so a permissive origin policy is safe here.
+app.use('/mcp', (req, res, next) => {
+  res.set({
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, GET, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID',
+    'Access-Control-Expose-Headers': 'Mcp-Session-Id, Mcp-Protocol-Version, WWW-Authenticate',
+  });
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+});
+
 function personFor(req) {
   const header = req.get('authorization') || '';
   const token = header.startsWith('Bearer ') ? header.slice(7).trim() : null;

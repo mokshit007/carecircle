@@ -115,6 +115,21 @@ Enable one at a time per chat, then try "How's Mum doing?" as Priya or "I took m
 
 For a repeatable demo, `npm run demo` starts with fresh data and the household clock pinned to 1:30 PM.
 
+### Test the views in the official MCP Apps reference host
+
+CareCircle's views have been tested in `basic-host` from
+[modelcontextprotocol/ext-apps](https://github.com/modelcontextprotocol/ext-apps/tree/main/examples/basic-host):
+both views render inside its double-iframe sandbox, and in-view buttons call `confirm_dose_from_screen` and
+`claim_task` through its AppBridge. basic-host can't send auth headers, so pick the person with
+`CARECIRCLE_DEFAULT_PERSON`:
+
+```bash
+CARECIRCLE_DEFAULT_PERSON=priya npm run demo
+# in a copy of ext-apps/examples/basic-host, after npm install:
+INPUT=index.html npx vite build && INPUT=sandbox.html npx vite build
+SERVERS='["http://localhost:3000/mcp"]' node serve.ts   # then open http://localhost:8080
+```
+
 Try it in MCP Inspector:
 
 ```bash

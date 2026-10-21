@@ -72,7 +72,7 @@ Two hosts show the same MCP server:
 | 2:10–2:30 | Dashboard: **Motion at 2:47 AM** → live alert. Echo as Margaret: "I fell in the kitchen" → urgent alert on Priya's devices | "Real Ring webhooks, HMAC-verified. Emergencies are caught by rules on the server, not left to the model." |
 | 2:30–2:50 | Dashboard **Visit brief** dialog, then README architecture and `npm run smoke` passing | "And the doctor gets a one-page brief. MCP 2025-11-25 over Streamable HTTP, role-scoped tools, MCP Apps, an Agent Skill and Ring. Open source. CareCircle." |
 
-If MCP Apps views don't render in your Claude desktop version, the tools still work and reply in text. Show the views
+The views are verified in the official MCP Apps reference host (see README). If MCP Apps views don't render in your Claude desktop version, the tools still work and reply in text. Show the views
 in the Echo simulator instead.
 
 ---
@@ -119,6 +119,7 @@ hardware.
 | Task | Steps | Expected | Actual | Severity | Workaround | Suggestion |
 |---|---|---|---|---|---|---|
 | Test Ring webhooks without a device | Read API docs, looked for a sandbox | A way to trigger signed test events | None documented | Medium | Built a signer that sends real v1.1 payloads to our own endpoint | A portal button that sends a signed test event |
+| Test views in the MCP Apps reference host (basic-host) | Cloned ext-apps, `npm run start` in examples/basic-host | Host starts | `serve` needs Bun; host can't send auth headers; browser host needs CORS on /mcp | Medium | Built with `npx vite`, ran `node serve.ts`; added CORS; picked the person via env var | Document a Node path and support custom headers per server |
 | Use MCP Apps with an SDK v1 server | Installed latest ext-apps | Works with the current SDK | 2.x needs SDK v2 peers | Low | Pinned ext-apps 1.7.5 | Document the version matrix on the landing page |
 | | | | | | | |
 
