@@ -1,109 +1,179 @@
-// Simulated Alexa+ for the demo console: an agent loop on Claude (Amazon Bedrock) that discovers and
-// calls tools through the CareCircle MCP server over Streamable HTTP — the same path Alexa+ uses.
+// A stand-in for Alexa+ in the demo: an agent loop on Claude (Amazon Bedrock) that connects to the
+// CareCircle MCP server over Streamable HTTP *as a specific person*, discovers that person's tools,
+// follows the CareCircle Agent Skill, and returns any MCP Apps view a tool asked to show.
+import fs from 'node:fs';
+import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { bedrock, bedrockEnabled, BEDROCK_MODEL, textOf } from './bedrock.js';
+import { UI_MIME } from './views.js';
 
 const MAX_TURNS = 8;
-const conversations = new Map(); // conversationId -> MessageParam[]
+const conversations = new Map(); // `${personId}:${conversationId}` -> MessageParam[]
+const SKILL_FILE = path.resolve('skills', 'carecircle-care-companion', 'SKILL.md');
 
-async function connect(mcpUrl) {
-  const headers = process.env.MCP_AUTH_TOKEN ? { Authorization: `Bearer ${process.env.MCP_AUTH_TOKEN}` } : {};
-  const client = new Client({ name: 'carecircle-voice-console', version: '1.0.0' });
-  await client.connect(new StreamableHTTPClientTransport(new URL(mcpUrl), { requestInit: { headers } }));
+// The Agent Skill is the single source of truth for how an assistant should run CareCircle.
+const skillText = () => fs.readFileSync(SKILL_FILE, 'utf8').replace(/^---[\s\S]*?---\s*/, '');
+
+export async function connectAs(mcpUrl, person) {
+  const client = new Client(
+    { name: 'carecircle-echo-simulator', version: '2.0.0' },
+    { capabilities: { extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: [UI_MIME] } } } },
+  );
+  const transport = new StreamableHTTPClientTransport(new URL(mcpUrl), {
+    requestInit: { headers: { Authorization: `Bearer ${person.token}` } },
+  });
+  await client.connect(transport);
   return client;
 }
 
-const toolText = (result) => result.content.filter((c) => c.type === 'text').map((c) => c.text);
+const visibility = (tool) => tool._meta?.ui?.visibility ?? ['model', 'app'];
+const textContent = (result) => result.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n');
 
-function systemPrompt(recipient) {
-  return [
-    `You are Alexa, helping ${recipient}, an older adult, through the CareCircle skill.`,
-    'Your reply is spoken aloud by a smart speaker: one to three short, warm sentences, no lists, no markdown, no emoji.',
-    'Use the CareCircle tools for anything about medications, doses, appointments, feelings or messaging family; ',
-    'never guess what the schedule says. When a tool returns a spoken sentence, you may reuse it.',
-    'You are not a doctor: never advise on doses, interactions or changing medication. Suggest their doctor or pharmacist.',
-    'If they describe an emergency, log it with log_wellbeing and tell them to call emergency services.',
-  ].join(' ');
-}
-
-export async function converse({ mcpUrl, recipient, conversationId, utterance }) {
-  const client = await connect(mcpUrl);
+export async function converse({ mcpUrl, person, conversationId, utterance }) {
+  const client = await connectAs(mcpUrl, person);
   const trace = [];
+  let view = null; // last tool result that asked for a UI
+
+  const callTool = async (tool, args) => {
+    const result = await client.callTool({ name: tool.name, arguments: args });
+    trace.push({ tool: tool.name, input: args, output: textContent(result), ui: tool._meta?.ui?.resourceUri ?? null });
+    if (tool._meta?.ui?.resourceUri && !result.isError) view = { tool, args, result };
+    return result;
+  };
+
   try {
-    if (!bedrockEnabled()) return { reply: await offlineRouter(client, utterance, trace), trace, mode: 'offline' };
-
     const { tools } = await client.listTools();
-    const claudeTools = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema }));
-    const messages = conversations.get(conversationId) ?? [];
-    messages.push({ role: 'user', content: utterance });
+    const modelTools = tools.filter((t) => visibility(t).includes('model'));
+    const reply = bedrockEnabled()
+      ? await bedrockLoop({ client, person, conversationId, utterance, modelTools, callTool })
+      : await offlineRouter({ person, utterance, tools: modelTools, callTool });
 
-    for (let turn = 0; turn < MAX_TURNS; turn++) {
-      const response = await bedrock().messages.create({
-        model: BEDROCK_MODEL,
-        max_tokens: 4000,
-        output_config: { effort: 'low' },
-        system: systemPrompt(recipient),
-        tools: claudeTools,
-        messages,
-      });
-      // Append the full content (including thinking blocks) so the history stays append-only.
-      messages.push({ role: 'assistant', content: response.content });
-
-      if (response.stop_reason === 'refusal') {
-        return { reply: "Sorry, I can't help with that one. You might ask your doctor or pharmacist.", trace, mode: 'bedrock' };
-      }
-      if (response.stop_reason !== 'tool_use') {
-        conversations.set(conversationId, messages.slice(-40));
-        return { reply: textOf(response), trace, mode: 'bedrock' };
-      }
-
-      const results = [];
-      for (const block of response.content.filter((b) => b.type === 'tool_use')) {
-        const result = await client.callTool({ name: block.name, arguments: block.input });
-        trace.push({ tool: block.name, input: block.input, output: toolText(result)[0] });
-        results.push({
-          type: 'tool_result', tool_use_id: block.id, is_error: Boolean(result.isError),
-          content: toolText(result).join('\n'),
-        });
-      }
-      messages.push({ role: 'user', content: results });
+    let ui = null;
+    if (view) {
+      const uri = view.tool._meta.ui.resourceUri;
+      const resource = await client.readResource({ uri });
+      ui = { uri, html: resource.contents[0].text, toolName: view.tool.name, toolInput: view.args, toolResult: view.result, tool: view.tool };
     }
-    return { reply: 'Sorry, that took me too long. Could you say it another way?', trace, mode: 'bedrock' };
+    return { reply, trace, ui, mode: bedrockEnabled() ? 'bedrock' : 'offline' };
   } finally {
     await client.close();
   }
 }
 
-export function resetConversation(conversationId) {
-  conversations.delete(conversationId);
+// Calls made by an MCP Apps view (e.g. tapping "I took it"); only tools visible to apps are allowed.
+export async function appToolCall({ mcpUrl, person, name, args }) {
+  const client = await connectAs(mcpUrl, person);
+  try {
+    const { tools } = await client.listTools();
+    const tool = tools.find((t) => t.name === name);
+    if (!tool || !visibility(tool).includes('app')) {
+      return { content: [{ type: 'text', text: `Tool ${name} is not available to apps.` }], isError: true };
+    }
+    return await client.callTool({ name, arguments: args });
+  } finally {
+    await client.close();
+  }
 }
 
-// Keyword fallback so the console still demos the MCP tools without AWS credentials.
-async function offlineRouter(client, utterance, trace) {
+export function resetConversations() {
+  conversations.clear();
+}
+
+function systemPrompt(person) {
+  return [
+    `You are Alexa on ${person.name}'s ${person.device}, using the CareCircle skill.`,
+    person.role === 'recipient'
+      ? `${person.name} is the older adult being cared for.`
+      : `${person.name} is a family caregiver (${person.relation}).`,
+    'Your reply is spoken aloud: one to three short, warm sentences, no lists, no markdown, no emoji.',
+    'If a screen view is shown by a tool, you can refer to it briefly ("it\'s on your screen").',
+    '',
+    skillText(),
+  ].join('\n');
+}
+
+async function bedrockLoop({ person, conversationId, utterance, modelTools, callTool }) {
+  const key = `${person.id}:${conversationId}`;
+  const messages = conversations.get(key) ?? [];
+  messages.push({ role: 'user', content: utterance });
+  const claudeTools = modelTools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema }));
+
+  for (let turn = 0; turn < MAX_TURNS; turn++) {
+    const response = await bedrock().messages.create({
+      model: BEDROCK_MODEL,
+      max_tokens: 4000,
+      output_config: { effort: 'low' },
+      system: systemPrompt(person),
+      tools: claudeTools,
+      messages,
+    });
+    // Append the full content (thinking blocks included) so the history stays append-only.
+    messages.push({ role: 'assistant', content: response.content });
+
+    if (response.stop_reason === 'refusal') {
+      return "Sorry, I can't help with that one. You might ask the doctor or pharmacist.";
+    }
+    if (response.stop_reason !== 'tool_use') {
+      conversations.set(key, messages.slice(-40));
+      return textOf(response);
+    }
+
+    const results = [];
+    for (const block of response.content.filter((b) => b.type === 'tool_use')) {
+      const tool = modelTools.find((t) => t.name === block.name);
+      const result = tool
+        ? await callTool(tool, block.input)
+        : { content: [{ type: 'text', text: `Unknown tool ${block.name}` }], isError: true };
+      results.push({ type: 'tool_result', tool_use_id: block.id, is_error: Boolean(result.isError), content: textContent(result) });
+    }
+    messages.push({ role: 'user', content: results });
+  }
+  return 'Sorry, that took me too long. Could you say it another way?';
+}
+
+// Keyword routing so the simulator still exercises the real MCP tools without AWS credentials.
+async function offlineRouter({ person, utterance, tools, callTool }) {
   const u = utterance.toLowerCase();
+  const has = (name) => tools.find((t) => t.name === name);
   const call = async (name, args = {}) => {
-    const result = await client.callTool({ name, arguments: args });
-    const speech = toolText(result)[0];
-    trace.push({ tool: name, input: args, output: speech });
-    return speech;
+    const tool = has(name);
+    if (!tool) return null;
+    return textContent(await callTool(tool, args));
   };
-  const { tools } = await client.listTools();
-  if (/\b(took|taken|had|take[ns]?)\b/.test(u) && !/\b(what|which|when|do i|should)\b/.test(u)) {
-    const plan = JSON.parse(toolText(await client.callTool({ name: 'list_medications', arguments: {} }))[1]);
-    const med = plan.find((m) => u.includes(m.name.toLowerCase()));
-    if (med) return call('log_dose', { medication: med.name, status: /skip/.test(u) ? 'skipped' : 'taken' });
+
+  if (person.role === 'recipient') {
+    if (/\b(took|taken|had)\b/.test(u) && !/\b(did i|have i|what|which)\b/.test(u)) {
+      return call('log_dose', { medication: u.replace(/.*\b(took|taken|had)\b\s*(my|the)?\s*/, '').replace(/[.!?]$/, ''), status: 'taken' });
+    }
+    if (/skip/.test(u)) return call('log_dose', { medication: u.replace(/.*skip(ping)?\s*(my|the)?\s*/, ''), status: 'skipped' });
+    if (/message|news/.test(u) && /for me|any|new/.test(u)) return call('get_my_messages');
+    if (/miss|forgot|forget/.test(u)) return call('check_missed_doses');
+    if (/appointment|doctor|visit/.test(u)) return call('list_upcoming_appointments', { days: 14 });
+    const tell = u.match(/^(?:please\s+)?(?:tell|let|message|ask)\s+(\w+)\s+(?:know\s+)?(?:that\s+)?(.*)$/);
+    if (tell) {
+      const to = tell[1] === 'everyone' || tell[1] === 'the' ? undefined : tell[1];
+      return call('message_family', { message: utterance.replace(/^.*?(?:tell|let|message|ask)\s+\w+\s+(?:know\s+)?(?:that\s+)?/i, ''), to, urgency: 'info' });
+    }
+    if (/feel|pain|hurt|tired|dizzy|fell|sad|slept|sleep|breath|muddled|confus/.test(u)) {
+      const mood = /great|good|wonderful|fine/.test(u) ? 4 : /sad|tired|bad|rough|low|muddled|dizzy/.test(u) ? 2 : undefined;
+      return call('log_wellbeing', { mood, note: utterance });
+    }
+    if (/pill|med|schedule|today|next|dose|take/.test(u)) return call('get_today_schedule');
+  } else {
+    if (/^(i'?ll|i will|i can|i'm going to)\b/.test(u)) return call('claim_task', { task: u });
+    if (/picked up|done with|finished|i got the|collected/.test(u)) return call('complete_task', { task: u });
+    if (/^(tell|let|message)\s+(mum|mom|mother|her|grandma|nan|margaret)/.test(u)) {
+      return call('message_recipient', { message: utterance.replace(/^(tell|let|message)\s+\w+\s+(know\s+)?(that\s+)?/i, '') });
+    }
+    if (/brief|prepare|doctor visit/.test(u)) return call('prepare_visit_brief', {});
+    if (/chang|worr|routine|insight|different|unusual/.test(u)) return call('get_routine_insights');
+    if (/week|digest|summary/.test(u)) return call('get_care_digest', { days: 7 });
+    if (/task|to do|todo|who'?s/.test(u)) return call('list_family_tasks');
+    if (/seen|called her|acknowledg/.test(u)) return call('acknowledge_alerts');
+    if (/pill|med|schedule|dose/.test(u)) return call('get_today_schedule');
+    if (/appointment/.test(u)) return call('list_upcoming_appointments', { days: 14 });
+    return call('get_circle_status');
   }
-  if (/miss|forgot|forget/.test(u)) return call('check_missed_doses');
-  if (/appointment|doctor|visit/.test(u)) return call('list_upcoming_appointments', { days: 14 });
-  if (/week|digest|summary|how (has|is) .* doing/.test(u)) return call('get_care_digest', { days: 7 });
-  if (/tell|let .* know|message/.test(u)) {
-    return call('notify_caregiver', { message: utterance.replace(/^.*?(tell|let)\s+\w+\s+(know\s+)?(that\s+)?/i, ''), urgency: 'info' });
-  }
-  if (/feel|pain|hurt|tired|dizzy|fell|sad|good|great|breath/.test(u)) {
-    const mood = /great|good|wonderful/.test(u) ? 4 : /sad|tired|bad|rough|low/.test(u) ? 2 : undefined;
-    return call('log_wellbeing', { mood, note: utterance });
-  }
-  if (/pill|med|schedule|today|next|dose/.test(u)) return call('get_today_schedule');
-  return `I can help with your medications, appointments, or how you're feeling. (Offline demo mode: ${tools.length} CareCircle tools available. Set BEDROCK_ENABLED=true for full conversation.)`;
+  return "I can help with medicines, appointments, how you're feeling, or messages for the family. (Offline demo mode: set BEDROCK_ENABLED=true for full conversation.)";
 }

@@ -1,115 +1,133 @@
-# CareCircle: medication and wellbeing support for Alexa+
+# CareCircle: one Alexa+ for the whole family
 
-**CareCircle is a self-hosted MCP server that lets an older adult manage medications, appointments and daily check-ins just by talking to Alexa+, and gives their family a dashboard and alerts.**
+**CareCircle is a self-hosted MCP server that connects an older adult's Echo with the Echos of everyone who cares for them.**
+It helps Mum with her medicines by voice. It tells the family when something needs attention. And it notices when her
+routine quietly starts to change, by combining her voice check-ins with **Ring** front-door activity at night.
 
-> "Alexa, I just took my Metformin." · "Did I miss anything today?" · "I fell in the kitchen." · "How has Mum been doing this week?"
+> **Margaret (kitchen Echo Show):** "I took my Metformin." → *"Logged your 8 AM Metformin. Next up is Vitamin D at noon."*
+> **Margaret, an hour later:** "I took my Metformin." → *"I already have that logged at 1:30. Your next one isn't until 7 PM, so there's no need to take another."* (and the family is told)
+> **Priya (her daughter's Echo, 200 miles away):** "How's Mum doing?" → *"She's taken 3 of 5 doses today. I've noticed a change in her routine: front-door activity at night three nights running, evening doses being missed, and later mornings…"* (with the care-circle view on screen)
+> **Priya:** "I'll drive her to cardiology." → the task is claimed, Sam is told, and Margaret's Echo says *"Priya will drive you to your cardiology check-up."*
 
-About 1 in 4 adults over 65 takes five or more prescriptions, and missed or doubled doses are one of the most common reasons older people end up in hospital. The people who help most, adult children who often live far away, usually have no idea whether the morning pills were taken. Pill-reminder apps assume a smartphone and good eyesight. A voice assistant in the kitchen needs neither.
+## Why this matters
 
-CareCircle turns Alexa+ into that missing link:
+* Many adults over 65 take **five or more medicines** every day, and missed or doubled doses are a common cause of avoidable hospital visits.
+* Most family caregivers **live away** and only find out something has changed when there is a crisis.
+* Amazon's **Alexa Together** caregiving service was discontinued in 2024. Families still need it. Alexa+ and MCP make it possible again, with an agent that can reason over a whole care circle instead of fixed routines.
 
-| For the older adult (voice) | For the family (dashboard + alerts) |
-|---|---|
-| "What do I take today?" gives the schedule with what's done and what's left | Live view of today's doses: taken, due, missed |
-| "I took my Metformin" logs the right dose and says what's next | 7-day adherence chart with missed-dose patterns |
-| "Did I miss anything?" checks gently, without suggesting a double dose | Automatic alert when a dose is overdue or logged unusually early |
-| "I'm feeling dizzy" or "I fell" logs it; serious words alert family **immediately** | Wellbeing journal with mood and symptoms |
-| "Tell Priya I need a refill" sends a message to the family feed | Weekly AI digest written by Claude on Amazon Bedrock |
-| "When's my next doctor visit?" | Upcoming appointments with notes ("bring BP log") |
+## What's new here
+
+1. **One MCP server, a whole family, role-scoped tools.** Each Echo connects with its own token, so the server knows
+   who is speaking. Margaret's Echo gets a gentle voice toolset (`log_dose`, `log_wellbeing`, `message_family`…).
+   Her daughter's Echo gets the family toolset (`get_circle_status`, `get_routine_insights`, `claim_task`,
+   `message_recipient`, `prepare_visit_brief`…). Same server, different `tools/list`.
+2. **Routine-drift early warning across Alexa and Ring.** CareCircle compares the last 3 days with the person's own
+   10-day baseline on six explainable signals: front-door motion between midnight and 5 AM (Ring), missed evening
+   doses, dose delay, when the day starts, mood, and new symptoms. Each signal is simple and shown with its numbers.
+   Combined, they catch the slow changes (night wandering, slipping routines) that often come before a crisis.
+   **Claude on Amazon Bedrock** explains the change in plain language for the family, without diagnosing.
+3. **MCP Apps for Echo Show.** `get_today_schedule` and `get_circle_status` declare `ui://` views (MCP Apps,
+   spec 2026-01-26). On a screen, Margaret gets big "I took it" buttons that call an **app-only** tool
+   (`visibility: ["app"]`). Priya gets a care-circle card with routine signals and "I'll do it" buttons for tasks.
+4. **Proactive, escalating care.** A reminder engine announces doses on Margaret's Echo, checks in again after
+   30 minutes, and tells the family after 60, through their Echos, the dashboard and optionally **Amazon SNS**
+   text or email. It respects quiet hours and opens family tasks for low supply and for appointments that need a ride.
+5. **Safety built into the server, not left to the model.** Emergency phrases (falls, chest pain, breathing trouble)
+   are caught by deterministic rules and alert the family instantly. A **double-dose guard** refuses a likely repeat
+   "I took it" and tells the family. It never suggests taking another dose when someone is unsure.
+6. **An Agent Skill** ([`skills/carecircle-care-companion/SKILL.md`](skills/carecircle-care-companion/SKILL.md),
+   open Agent Skills format) teaches any agent how to run CareCircle: how to speak, safety rules, and which tool for
+   which moment. The demo's Alexa stand-in loads it as its instructions.
 
 ## Architecture
 
 ```
- ┌──────────────┐  Streamable HTTP   ┌─────────────────────────────┐
- │   Alexa+     │ ─────────────────▶ │  CareCircle MCP server      │
- │ (or any MCP  │   POST /mcp        │  protocol 2025-11-25        │
- │  client)     │ ◀───────────────── │  11 tools · 1 resource ·    │
- └──────────────┘                    │  1 prompt                   │
-                                     │        │                    │
- ┌──────────────┐   /api/assistant   │        ▼                    │
- │ Voice console│ ──▶ agent loop ──▶ │  care logic + JSON store    │──▶ Family dashboard
- │ (simulated   │   Claude on Bedrock│        │                    │    (/ , polls /api/state)
- │  Echo)       │   calls tools via  │        ▼                    │
- └──────────────┘   MCP client       │  Claude on Amazon Bedrock   │
-                                     │  (weekly digest)            │
-                                     └─────────────────────────────┘
+  Margaret's Echo Show          Priya's Echo              Sam's Echo
+  (care recipient token)        (caregiver token)         (caregiver token)
+          │                            │                          │
+          └──────────── Streamable HTTP · MCP 2025-11-25 ─────────┘
+                                       │
+                     ┌─────────────────▼──────────────────┐
+  Ring doorbell ───▶ │  CareCircle MCP server              │ ──▶ Amazon SNS (SMS / email)
+  webhooks v1.1      │  · role-scoped tools per person     │
+  (HMAC-verified)    │  · MCP Apps views (ui://)           │ ──▶ Family dashboard (live SSE)
+                     │  · reminder & escalation engine     │
+                     │  · routine-drift detector           │ ──▶ Claude on Amazon Bedrock
+                     │  · double-dose & emergency guards   │     (drift explanations, digest,
+                     └─────────────────────────────────────┘      visit brief, label vision, agent)
 ```
 
-* **MCP server**: `@modelcontextprotocol/sdk` 1.32, `StreamableHTTPServerTransport`, protocol version **2025-11-25**. It runs stateless (a fresh server per request), so it scales horizontally or on Lambda without sticky sessions. Every tool has `title`, `annotations` (read-only, destructive and open-world hints) and returns a short **speakable sentence** first, then JSON detail.
-* **Simulated Alexa+ console** (`/voice.html`): browser speech recognition and speech synthesis. The backend runs an agent loop on **Claude on Amazon Bedrock**. It discovers the tools through MCP `tools/list` and calls them through MCP `tools/call` over Streamable HTTP, the same path Alexa+ uses. A side panel shows every MCP call live.
-* **AWS**: Claude on Amazon Bedrock (via `@anthropic-ai/bedrock-sdk`, Bedrock Mantle Messages API) writes the caregiver digest and powers the voice agent.
-* **Safety by design**: CareCircle never gives dosing advice. "Did I miss it?" never suggests taking another dose (it points to the pharmacist). Emergency phrases (falls, chest pain, breathing trouble, confusion) are caught by deterministic rules, not the LLM, so the family is alerted even if the model misreads the request.
-
-## MCP surface
-
-| Tool | What it does |
-|---|---|
-| `get_today_schedule` | Today's doses with status: taken, skipped, due, missed, upcoming |
-| `log_dose` | Fuzzy-matches the spoken drug name, picks the right slot, warns on early doses, refuses double logging |
-| `check_missed_doses` | Overdue doses, posted to the family feed once each |
-| `list_medications` / `add_medication` / `stop_medication` | Manage the plan (`stop_medication` is marked `destructiveHint`) |
-| `log_wellbeing` | Mood 1–5, symptoms, note; urgent keywords trigger instant caregiver alert |
-| `notify_caregiver` | Message the family feed |
-| `add_appointment` / `list_upcoming_appointments` | Appointments in spoken form |
-| `get_care_digest` | Weekly adherence, mood and symptom summary, written by Claude on Bedrock (template fallback) |
-
-Resource: `carecircle://care-plan` (Markdown care plan) · Prompt: `daily_check_in`
+| Piece | Where | Notes |
+|---|---|---|
+| MCP server | [src/mcp.js](src/mcp.js), [src/server.js](src/server.js) | `@modelcontextprotocol/sdk` 1.32, stateless Streamable HTTP, protocol **2025-11-25**, bearer token → person → toolset; icons, annotations, `structuredContent` on every tool |
+| MCP Apps views | [src/views/](src/views), [src/views.js](src/views.js) | `text/html;profile=mcp-app`, `_meta.ui.resourceUri`, app-only tools; official `@modelcontextprotocol/ext-apps` runtime inlined |
+| Routine drift | [src/drift.js](src/drift.js) | six signals vs personal baseline → steady / watch / concern |
+| Escalation engine | [src/escalation.js](src/escalation.js), [src/notify.js](src/notify.js) | reminders, family alerts, refill and ride tasks, SNS |
+| Ring | [src/ring.js](src/ring.js) | Ring Partner API webhook v1.1: `X-Signature` HMAC-SHA256 over raw body, `meta.request_id` de-dup, 200 before processing |
+| Claude on Bedrock | [src/bedrock.js](src/bedrock.js), [src/agent.js](src/agent.js) | `@anthropic-ai/bedrock-sdk` (Mantle); every AI feature has a deterministic fallback |
+| Agent Skill | [skills/carecircle-care-companion/SKILL.md](skills/carecircle-care-companion/SKILL.md) | loaded by the demo agent as its system instructions |
+| Echo Show simulator | [public/echo.html](public/echo.html) | a working **MCP Apps host**: sandboxed iframe, `ui/initialize`, tool-input/result, proxied `tools/call`, `ui/message`, model context |
+| Family dashboard | [public/index.html](public/index.html) | routine check, Ring night chart, live alerts, tasks, visit brief, pill-bottle scan |
 
 ## Run it
 
-Requires Node.js 22.9+. Settings are read from a `.env` file if present (copy `.env.example`).
+Requires Node.js 22.9+.
 
 ```bash
 npm install
 npm start
 ```
 
-* Family dashboard: http://127.0.0.1:3000/
-* Alexa+ voice console: http://127.0.0.1:3000/voice.html (Chrome or Edge for the microphone)
-* MCP endpoint: `http://127.0.0.1:3000/mcp`
+| Open | What |
+|---|---|
+| http://127.0.0.1:3000/echo.html | Echo Show simulator: switch between Margaret's, Priya's and Sam's devices |
+| http://127.0.0.1:3000/ | Family dashboard |
+| `http://127.0.0.1:3000/mcp` | MCP endpoint: send `Authorization: Bearer <token>` |
 
-Run the end-to-end MCP test against the running server:
+Demo tokens: `margaret-echo-demo` (care recipient), `priya-echo-demo` and `sam-echo-demo` (caregivers). Without a
+token, local requests act as Margaret (turn that off with `ALLOW_ANONYMOUS=false`).
+
+End-to-end test (both roles, MCP Apps resources, Ring signatures, auth):
 
 ```bash
 npm run smoke
 ```
 
-Without AWS credentials the voice console uses a small keyword router that still goes through the real MCP tools. To use Claude on Amazon Bedrock, copy `.env.example` and set:
+Try it in MCP Inspector:
+
+```bash
+npx @modelcontextprotocol/inspector
+```
+
+Then connect to `http://127.0.0.1:3000/mcp` (Streamable HTTP) with header `Authorization: Bearer priya-echo-demo`.
+
+### Configuration
+
+Copy `.env.example` to `.env` (it is loaded automatically).
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `BEDROCK_ENABLED` | `false` | `true` turns on Claude for the voice agent and the digest |
-| `AWS_REGION` | `us-east-1` | Bedrock region (standard AWS credential chain is used) |
+| `BEDROCK_ENABLED` | `false` | `true` turns on Claude for the voice agent, drift explanations, digest, visit brief and label reading |
+| `AWS_REGION` | `us-east-1` | Bedrock and SNS region (standard AWS credential chain) |
 | `BEDROCK_MODEL_ID` | `anthropic.claude-opus-5-5` | Any Claude model enabled in your account |
-| `MCP_AUTH_TOKEN` | – | Require `Authorization: Bearer <token>` on `/mcp` |
-| `HOST` / `PORT` | `127.0.0.1` / `3000` | Bind address |
-| `ALLOWED_HOSTS` | – | Comma-separated Host headers allowed when exposed through a tunnel or domain |
+| `SNS_TOPIC_ARN` | – | Send urgent alerts, escalations and drift insights to caregivers by SMS or email |
+| `RING_WEBHOOK_SECRET` | demo secret | Your Ring app's HMAC signing key |
+| `ALLOW_ANONYMOUS` | `true` | `false` requires a bearer token on `/mcp` |
+| `HOST` / `PORT` / `ALLOWED_HOSTS` | `127.0.0.1` / `3000` / – | Bind address and Host allow-list when exposed |
 | `CARECIRCLE_TZ` | system | Household timezone |
 | `CARECIRCLE_CLOCK` | – | Pin the time of day (e.g. `13:30`) for repeatable demos |
 
-You can also set them in the shell instead; on PowerShell, use `$env:BEDROCK_ENABLED="true"` before `npm start`.
+### Deploy
 
-### Connect it to Alexa+ or another MCP client
+The server is stateless, so it runs anywhere a container runs. See [docs/DEPLOY.md](docs/DEPLOY.md) for Docker, Amazon
+Bedrock AgentCore Runtime and exposing it to Alexa+.
 
-1. Expose the server over HTTPS, for example with a tunnel: `HOST=0.0.0.0 ALLOWED_HOSTS=<your-tunnel-host> MCP_AUTH_TOKEN=<secret> npm start`.
-2. Register `https://<your-host>/mcp` as a Streamable HTTP MCP server in the Alexa+ developer preview (or in MCP Inspector: `npx @modelcontextprotocol/inspector`).
+## Safety and privacy
 
-## Project layout
-
-```
-src/server.js   HTTP entry: /mcp, dashboard API, voice-console API
-src/mcp.js      MCP tools, resource and prompt
-src/care.js     Scheduling, adherence, alerts, digest facts
-src/agent.js    Claude-on-Bedrock agent loop that uses the MCP server as its tools
-src/bedrock.js  Bedrock client and digest writer
-src/store.js    JSON store and demo household seed
-public/         Family dashboard and simulated Alexa+ console
-scripts/smoke.js End-to-end MCP client test
-```
-
-## Not medical advice
-
-CareCircle is a reminder and logging aid, not a medical device. It never recommends doses or changes to medication.
+* CareCircle is a reminder, logging and coordination aid, **not a medical device**. It never recommends doses or
+  medication changes, and its AI features are instructed to describe, not diagnose.
+* Emergency detection and the double-dose guard are deterministic and run on the server.
+* Each person only sees the tools for their role; tokens map to people on the server.
 
 ## License
 

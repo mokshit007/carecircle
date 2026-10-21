@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Care circle</title>
+<style>
+  :root { --bg:#f7f5f0; --card:#fff; --ink:#1d2330; --muted:#677083; --line:#ebe5d9; --accent:#0b7a75; --accent-soft:#e2f3f1; --ok:#1f8a4c; --ok-soft:#e3f4ea; --warn:#a8670f; --warn-soft:#fdf0d9; --bad:#b93a2e; --bad-soft:#fbe6e3; }
+  [data-theme="dark"] { --bg:#10141a; --card:#1a1f28; --ink:#eef1f5; --muted:#9aa4b5; --line:#2a313d; --accent:#3cc4bc; --accent-soft:#15332f; --ok-soft:#173322; --warn-soft:#3a2b10; --bad-soft:#3d1c18; }
+  * { box-sizing: border-box; }
+  body { margin:0; font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); padding: 16px; }
+  h1 { font-size: 22px; margin: 0; } h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 8px; }
+  .sub { color: var(--muted); margin: 2px 0 12px; }
+  .row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
+  .drift.concern { border-left: 5px solid var(--bad); } .drift.watch { border-left: 5px solid var(--warn); } .drift.steady { border-left: 5px solid var(--ok); }
+  .badge { display: inline-block; font-size: 12px; font-weight: 800; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: .05em; }
+  .badge.concern { background: var(--bad-soft); color: var(--bad); } .badge.watch { background: var(--warn-soft); color: var(--warn); } .badge.steady { background: var(--ok-soft); color: var(--ok); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+  td { padding: 5px 4px; border-top: 1px solid var(--line); } td.src { color: var(--muted); font-size: 12px; }
+  .stat { font-size: 30px; font-weight: 800; } .muted { color: var(--muted); }
+  ul { list-style: none; margin: 0; padding: 0; } li { padding: 8px 0; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; } li:first-child { border-top: 0; }
+  .grow { flex: 1; }
+  button { font: inherit; font-weight: 700; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 999px; padding: 6px 14px; cursor: pointer; white-space: nowrap; }
+  button.ghost { background: transparent; color: var(--accent); }
+  .bars { display: flex; gap: 6px; align-items: flex-end; height: 60px; }
+  .bars div { flex: 1; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 3px; }
+  .bars div.low { background: var(--warn); }
+</style>
+</head>
+<body>
+  <h1 id="title">Care circle</h1>
+  <div class="sub" id="sub">Loading…</div>
+
+  <div class="card drift" id="drift"></div>
+
+  <div class="row">
+    <div class="card"><h2>Today</h2><div class="stat" id="today"></div><div class="muted" id="todayNote"></div></div>
+    <div class="card"><h2>Last 7 days</h2><div class="stat" id="adh"></div><div class="bars" id="bars"></div></div>
+  </div>
+
+  <div class="card"><h2>Family tasks</h2><ul id="tasks"></ul></div>
+  <div class="card"><h2>Recent alerts</h2><ul id="alerts"></ul></div>
+  <div><button class="ghost" id="brief">Prepare a brief for the next appointment</button></div>
+
+<script type="module">
+  const { App } = globalThis.McpApps;
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const app = new App({ name: 'CareCircle Circle', version: '2.0.0' });
+  let state;
+
+  function render(s) {
+    if (!s?.today) return;
+    state = s;
+    $('title').textContent = `${s.recipient}'s care circle`;
+    $('sub').textContent = `Viewing as ${s.viewer} · ${s.today.weekday} ${s.today.now}`;
+
+    const d = s.drift;
+    $('drift').className = `card drift ${d.level}`;
+    $('drift').innerHTML = `<h2>Routine check <span class="badge ${d.level}">${d.level}</span></h2>
+      <div>${esc(d.narrative || d.summary)}</div>
+      ${d.signals.some((x) => x.flagged) ? `<table>${d.signals.filter((x) => x.flagged).map((x) =>
+        `<tr><td><b>${esc(x.label)}</b></td><td>${esc(x.recent)}</td><td class="muted">usually ${esc(x.baseline)}</td><td class="src">${esc(x.source)}</td></tr>`).join('')}</table>` : ''}`;
+
+    $('today').textContent = `${s.today.taken}/${s.today.total}`;
+    $('todayNote').textContent = s.today.overdue ? `${s.today.overdue} dose(s) overdue` : 'Nothing overdue';
+    $('adh').textContent = `${s.adherence.rate}%`;
+    $('bars').innerHTML = s.adherence.perDay.map((p) => {
+      const pct = p.scheduled ? Math.round((p.taken / p.scheduled) * 100) : 0;
+      return `<div class="${pct < 90 ? 'low' : ''}" style="height:${pct}%" title="${p.date}: ${p.taken}/${p.scheduled}"></div>`;
+    }).join('');
+
+    $('tasks').innerHTML = s.tasks.map((t) => `<li><span class="grow">${esc(t.title)}<br><span class="muted">${t.claimedByName ? 'Taken by ' + esc(t.claimedByName) : 'Nobody yet'}</span></span>
+      ${t.claimedByName ? '' : `<button data-task="${esc(t.id)}">I'll do it</button>`}</li>`).join('') || '<li class="muted">No open tasks</li>';
+    $('alerts').innerHTML = s.alerts.map((a) => `<li><span class="grow">${esc(a.message)}</span></li>`).join('') || '<li class="muted">All quiet</li>';
+  }
+
+  $('tasks').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('button[data-task]');
+    if (!btn) return;
+    btn.disabled = true;
+    const result = await app.callServerTool({ name: 'claim_task', arguments: { task: btn.dataset.task } });
+    render(result.structuredContent?.circle || state);
+  });
+
+  $('brief').addEventListener('click', () => {
+    const appt = state?.nextAppointment;
+    app.sendMessage({ role: 'user', content: [{ type: 'text', text: `Prepare a visit brief for ${appt ? 'the ' + appt : 'the next appointment'}.` }] });
+  });
+
+  app.ontoolresult = (result) => render(result.structuredContent);
+  app.onhostcontextchanged = (ctx) => { if (ctx.theme) document.documentElement.dataset.theme = ctx.theme; };
+  await app.connect();
+  const theme = app.getHostContext()?.theme;
+  if (theme) document.documentElement.dataset.theme = theme;
+</script>
+</body>
+</html>

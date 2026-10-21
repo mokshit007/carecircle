@@ -9,127 +9,321 @@
 <body>
   <header class="top">
     <div class="brand">
-      <div class="logo">C</div>
-      <div>
-        <h1>CareCircle</h1>
-        <p id="subtitle">Family dashboard</p>
-      </div>
+      <div class="logo"><svg viewBox="0 0 64 64"><path d="M32 50s-17-10.3-17-21.8a9.7 9.7 0 0 1 17-6.4 9.7 9.7 0 0 1 17 6.4C49 39.7 32 50 32 50z" fill="#fff"/></svg></div>
+      <div><h1 id="circleName">CareCircle</h1><p id="subtitle">Family dashboard</p></div>
     </div>
-    <nav>
-      <a href="voice.html">Alexa+ voice console →</a>
+    <nav class="nav">
+      <label class="small muted">Viewing as <select id="viewer"></select></label>
+      <a href="/echo.html">Echo Show simulator →</a>
     </nav>
   </header>
 
   <main>
     <div class="grid">
-      <section class="card span-4">
+      <!-- Routine drift: the headline insight -->
+      <section class="card s8 drift" id="driftCard">
+        <h2>Routine check <span class="row"><span class="chip" id="driftLevel">–</span><button id="explain" class="primary">Explain with Claude</button></span></h2>
+        <div id="driftSummary"></div>
+        <div id="driftNarrative"></div>
+        <table class="signals" id="signals"></table>
+      </section>
+
+      <section class="card s4">
         <h2>Today</h2>
-        <div class="stat" id="today-stat">–</div>
-        <p class="muted" id="today-note"></p>
-      </section>
-      <section class="card span-4">
-        <h2>7-day adherence</h2>
-        <div class="stat" id="adh-stat">–</div>
-        <div class="bars" id="adh-bars"></div>
-      </section>
-      <section class="card span-4">
-        <h2>Next appointment</h2>
-        <div id="next-appt" class="empty">None scheduled</div>
+        <div class="stat" id="todayStat">–</div>
+        <p class="muted" id="todayNote"></p>
+        <h2 style="margin-top:14px">7-day adherence</h2>
+        <div class="stat" id="adhStat">–</div>
+        <div class="bars" id="adhBars"></div>
       </section>
 
-      <section class="card span-7">
-        <h2>Today's medications</h2>
-        <ul class="plain" id="schedule"></ul>
-      </section>
-      <section class="card span-5">
-        <h2>Alerts &amp; messages</h2>
-        <ul class="plain" id="alerts"></ul>
+      <!-- Ring -->
+      <section class="card s7">
+        <h2>Front door at night · Ring <span class="chip ring">midnight – 5 AM</span></h2>
+        <div class="nights" id="nights"></div>
+        <div class="nights-axis" id="nightsAxis"></div>
+        <p class="muted small" id="nightNote"></p>
+        <div class="row noprint">
+          <span class="small muted">Send a signed Ring webhook:</span>
+          <button data-ring='{"type":"button_press"}'>🔔 Doorbell press</button>
+          <button data-ring='{"type":"motion_detected","subType":"human"}'>Motion now</button>
+          <button data-ring='{"type":"motion_detected","subType":"human","at":"last-night"}'>Motion at 2:47 AM</button>
+        </div>
       </section>
 
-      <section class="card span-7">
-        <h2>Wellbeing journal</h2>
-        <ul class="plain" id="journal"></ul>
+      <section class="card s5">
+        <h2>Alerts &amp; messages <span class="chip info" id="liveChip">live</span></h2>
+        <ul class="list" id="alerts" style="max-height:330px;overflow:auto"></ul>
       </section>
-      <section class="card span-5">
-        <h2>Medication plan</h2>
-        <ul class="plain" id="plan"></ul>
-        <p class="muted" style="font-size:13px;margin-top:14px" id="footer"></p>
+
+      <section class="card s6">
+        <h2>Today's medicines</h2>
+        <ul class="list" id="schedule"></ul>
+      </section>
+
+      <section class="card s6">
+        <h2>Family tasks</h2>
+        <ul class="list" id="tasks"></ul>
+      </section>
+
+      <section class="card s6">
+        <h2>Appointments</h2>
+        <ul class="list" id="appts"></ul>
+      </section>
+
+      <section class="card s6">
+        <h2>Medication plan &amp; supply <button id="scanBtn" class="primary">📷 Scan a pill bottle</button></h2>
+        <input type="file" id="scanFile" accept="image/*" capture="environment" hidden>
+        <ul class="list" id="meds"></ul>
+      </section>
+
+      <section class="card s7">
+        <h2>Wellbeing journal (from voice check-ins)</h2>
+        <ul class="list" id="journal"></ul>
+      </section>
+
+      <section class="card s5">
+        <h2>How CareCircle is set up</h2>
+        <ul class="list small" id="setup"></ul>
+        <div class="row noprint" style="margin-top:12px">
+          <button id="tick">Run reminder engine now</button>
+          <button id="reset">Reset demo</button>
+        </div>
       </section>
     </div>
   </main>
 
-  <script>
-    const $ = (id) => document.getElementById(id);
-    const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    const moodFace = (m) => ['', '😞', '🙁', '😐', '🙂', '😄'][m] || '📝';
-    const ago = (iso) => {
-      const mins = Math.round((Date.now() - Date.parse(iso)) / 60000);
-      if (mins < 1) return 'just now';
-      if (mins < 60) return `${mins} min ago`;
-      if (mins < 1440) return `${Math.round(mins / 60)} h ago`;
-      return `${Math.round(mins / 1440)} d ago`;
-    };
+  <dialog id="briefDialog">
+    <div class="row noprint" style="justify-content:space-between"><b>Visit brief</b><span class="row"><button onclick="print()">Print</button><button onclick="briefDialog.close()">Close</button></span></div>
+    <div class="md" id="briefBody"></div>
+  </dialog>
 
-    async function ack(id) {
-      await fetch(`/api/alerts/${id}/ack`, { method: 'POST' });
-      refresh();
-    }
+  <dialog id="scanDialog">
+    <b>Add from label</b>
+    <p class="muted small" id="scanStatus">Reading the label with Claude on Amazon Bedrock…</p>
+    <form id="scanForm" class="grid" style="gap:10px" hidden>
+      <label class="s6">Name<input name="medName" required style="width:100%"></label>
+      <label class="s6">Strength<input name="dose" required style="width:100%"></label>
+      <label class="s12">Directions<input name="instructions" style="width:100%"></label>
+      <label class="s6">Times (comma separated)<input name="times" required style="width:100%"></label>
+      <label class="s6">For (plain words)<input name="purpose" style="width:100%"></label>
+      <label class="s6">Quantity<input name="quantity" type="number" style="width:100%"></label>
+      <label class="s6">Prescriber<input name="prescriber" style="width:100%"></label>
+      <label class="s12"><input type="checkbox" name="withFood"> Take with food</label>
+      <p class="s12 muted small" id="scanWarn"></p>
+      <div class="s12 row"><button class="primary" type="submit">Add to plan</button><button type="button" onclick="scanDialog.close()">Cancel</button></div>
+    </form>
+  </dialog>
 
-    async function refresh() {
-      const s = await (await fetch('/api/state')).json();
-      const name = s.household.recipient;
-      $('subtitle').textContent = `Caring for ${name} · ${s.today.weekday} ${s.today.date}, ${s.today.now}`;
+  <div class="toast" id="toast"></div>
 
-      const slots = s.today.slots;
-      const taken = slots.filter((x) => x.status === 'taken').length;
-      const missed = slots.filter((x) => x.status === 'missed').length;
-      $('today-stat').innerHTML = `${taken}<small> / ${slots.length} doses taken</small>`;
-      $('today-note').textContent = missed ? `${missed} dose${missed > 1 ? 's' : ''} overdue` : 'Nothing overdue';
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const moodFace = (m) => ['', '😞', '🙁', '😐', '🙂', '😄'][m] || '📝';
+let viewerId = new URLSearchParams(location.search).get('as') || 'priya';
+let s = null, narrative = null;
 
-      $('adh-stat').innerHTML = `${s.adherence.rate}%<small> of ${s.adherence.scheduled} doses</small>`;
-      $('adh-bars').innerHTML = s.adherence.perDay.map((d) => {
-        const pct = d.scheduled ? Math.round((d.taken / d.scheduled) * 100) : 0;
-        const day = new Date(d.date + 'T12:00').toLocaleDateString(undefined, { weekday: 'short' });
-        return `<div class="bar" title="${d.date}: ${d.taken}/${d.scheduled}${d.missed.length ? ' · missed ' + esc(d.missed.join(', ')) : ''}">
-          <div class="fill ${pct < 90 ? 'low' : ''}" style="height:${d.scheduled ? pct : 0}%"></div><span>${day}</span></div>`;
-      }).join('');
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
+const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) }).then((r) => r.json());
+const ago = (iso) => {
+  const mins = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  return mins < 1 ? 'just now' : mins < 60 ? `${mins} min ago` : mins < 1440 ? `${Math.round(mins / 60)} h ago` : `${Math.round(mins / 1440)} d ago`;
+};
+const dayName = (date) => new Date(date + 'T12:00').toLocaleDateString(undefined, { weekday: 'short' });
 
-      const appt = s.appointments[0];
-      $('next-appt').className = appt ? '' : 'empty';
-      $('next-appt').innerHTML = appt
-        ? `<div style="font-weight:600;font-size:18px">${esc(appt.title)}</div>
-           <div>${appt.inDays === 0 ? 'Today' : appt.inDays === 1 ? 'Tomorrow' : `In ${appt.inDays} days`} · ${esc(appt.spokenTime)}</div>
-           <div class="muted">${esc(appt.location)}</div>${appt.notes ? `<div class="muted">📋 ${esc(appt.notes)}</div>` : ''}`
-        : 'None scheduled';
+// Minimal Markdown for the visit brief (headings, bold, bullets, paragraphs).
+function md(text) {
+  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  let html = '', inList = false;
+  for (const line of String(text).split('\n')) {
+    const bullet = line.match(/^\s*[-*]\s+(.*)/);
+    if (bullet) { if (!inList) { html += '<ul>'; inList = true; } html += `<li>${inline(bullet[1])}</li>`; continue; }
+    if (inList) { html += '</ul>'; inList = false; }
+    const h = line.match(/^(#{1,3})\s+(.*)/);
+    if (h) html += `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`;
+    else if (line.trim()) html += `<p>${inline(line)}</p>`;
+  }
+  return html + (inList ? '</ul>' : '');
+}
 
-      $('schedule').innerHTML = slots.map((x) => `
-        <li><span class="time">${esc(x.spokenTime)}</span>
-          <span class="grow"><strong>${esc(x.medication)}</strong> ${esc(x.dose)}
-            <span class="muted">${x.withFood ? '· with food' : ''}${x.loggedAt ? ' · logged ' + esc(x.loggedAt.slice(11)) : ''}</span></span>
-          <span class="chip ${x.status}">${x.status}</span></li>`).join('') || '<li class="empty">No medications</li>';
+async function refresh() {
+  s = await (await fetch('/api/state?as=' + viewerId)).json();
+  render();
+}
 
-      $('alerts').innerHTML = s.alerts.map((a) => `
-        <li class="alert ${a.urgency}" style="${a.acknowledged ? 'opacity:.55' : ''}">
-          <span class="grow">${esc(a.message)}<br><span class="muted" style="font-size:13px">${a.type.replace('_', ' ')} · ${ago(a.at)}</span></span>
-          ${a.acknowledged ? '<span class="chip info">seen</span>' : `<button onclick="ack('${a.id}')">Seen</button>`}
-        </li>`).join('') || '<li class="empty">No alerts. All quiet.</li>';
+function render() {
+  $('circleName').textContent = s.circle.name;
+  $('subtitle').textContent = `${s.today.weekday} ${s.today.date}, ${s.today.now} · ${s.circle.timezone}`;
+  $('viewer').innerHTML = s.people.filter((p) => p.role === 'caregiver').map((p) =>
+    `<option value="${p.id}" ${p.id === viewerId ? 'selected' : ''}>${esc(p.name)} (${esc(p.relation)})</option>`).join('');
 
-      $('journal').innerHTML = s.wellbeing.map((w) => `
-        <li class="${w.urgent ? 'alert urgent' : ''}"><span class="mood">${moodFace(w.mood)}</span>
-          <span class="grow">${esc(w.note) || '<span class="muted">Check-in</span>'}
-            ${w.symptoms.length ? `<br><span class="muted">Symptoms: ${esc(w.symptoms.join(', '))}</span>` : ''}</span>
-          <span class="muted" style="font-size:13px;white-space:nowrap">${esc(w.at.replace('T', ' '))}</span></li>`).join('')
-        || '<li class="empty">No entries yet</li>';
+  // Drift
+  const d = s.drift;
+  $('driftCard').className = `card s8 drift ${d.level}`;
+  $('driftLevel').className = `chip ${d.level}`;
+  $('driftLevel').textContent = d.level;
+  $('driftSummary').textContent = d.summary;
+  const story = narrative || d.narrative;
+  $('driftNarrative').innerHTML = story ? `<div class="narrative"><b>Claude on Bedrock:</b> ${esc(story)}</div>` : '';
+  $('explain').hidden = d.level === 'steady' || !s.assistant.bedrock;
+  $('signals').innerHTML = '<tr class="muted small"><td>Signal</td><td>Last 3 days</td><td>Usual (10 days before)</td><td>Source</td></tr>' +
+    d.signals.map((x) => `<tr class="${x.flagged ? '' : 'off'}"><td>${x.flagged ? '⚠️ ' : ''}<b>${esc(x.label)}</b><br><span class="small muted">${esc(x.detail)}</span></td>
+      <td>${esc(x.recent)}</td><td>${esc(x.baseline)}</td><td><span class="chip ${x.source === 'Ring' ? 'ring' : 'info'}">${esc(x.source)}</span></td></tr>`).join('');
 
-      $('plan').innerHTML = s.medications.map((m) => `
-        <li><span class="grow"><strong>${esc(m.name)}</strong> ${esc(m.dose)}<br>
-          <span class="muted">${m.times.join(', ')}${m.instructions ? ' · ' + esc(m.instructions) : ''}</span></span></li>`).join('');
+  // Today + adherence
+  const t = s.today;
+  $('todayStat').innerHTML = `${t.taken}<small> / ${t.total} doses</small>`;
+  $('todayNote').textContent = t.overdue ? `${t.overdue} overdue · reminders sent on the Echo` : t.next ? `Next: ${t.next.medication} at ${t.next.time}` : 'All done today';
+  $('adhStat').innerHTML = `${s.adherence.rate}%<small> of ${s.adherence.scheduled}</small>`;
+  $('adhBars').innerHTML = s.adherence.perDay.map((p) => {
+    const pct = p.scheduled ? Math.round((p.taken / p.scheduled) * 100) : 0;
+    return `<div class="bar" title="${p.date}: ${p.taken}/${p.scheduled}${p.missed.length ? ' · missed ' + esc(p.missed.join(', ')) : ''}">
+      <div class="fill ${pct < 90 ? 'low' : ''}" style="height:${p.scheduled ? pct : 0}%"></div><span>${dayName(p.date)}</span></div>`;
+  }).join('');
 
-      $('footer').textContent = `MCP protocol ${s.assistant.protocolVersion} · Assistant: ${s.assistant.bedrock ? 'Claude on Amazon Bedrock (' + s.assistant.model + ')' : 'offline demo router'} · Caregivers: ${s.caregivers.map((c) => `${c.name} (${c.relation})`).join(', ')}`;
-    }
+  // Ring night activity: each dot is an event, placed by time between midnight (top) and 5 AM (bottom).
+  const recent = new Set(d.recentDays);
+  $('nights').innerHTML = s.nightActivity.map((n) => `<div class="night ${recent.has(n.date) ? 'recent' : ''}" title="${n.date}: ${n.night.length ? n.night.join(', ') : 'quiet'}">
+    ${n.night.map((time) => { const [h, m] = time.split(':').map(Number); return `<span class="dot" style="top:${Math.min(92, ((h * 60 + m) / 300) * 100)}%"></span>`; }).join('')}</div>`).join('');
+  $('nightsAxis').innerHTML = s.nightActivity.map((n) => `<span>${dayName(n.date).slice(0, 2)}</span>`).join('');
+  const nightsWith = s.nightActivity.filter((n) => n.night.length).length;
+  $('nightNote').textContent = `${nightsWith} of the last 14 nights had front-door activity between midnight and 5 AM. Outlined columns are the last 3 nights used for the routine check.`;
 
+  // Alerts
+  $('alerts').innerHTML = s.alerts.map((a) => `<li class="alert-item ${a.urgency} ${a.acknowledged ? 'seen' : ''}">
+      <span class="grow">${esc(a.message)}<br><span class="muted small">${esc(a.type.replace(/_/g, ' '))} · ${ago(a.at)}</span></span>
+      ${a.acknowledged ? '' : `<button data-ack="${a.id}">Seen</button>`}</li>`).join('') || '<li class="empty">All quiet.</li>';
+
+  // Schedule
+  $('schedule').innerHTML = t.slots.map((x) => `<li><span class="time">${esc(x.spokenTime)}</span>
+      <span class="grow"><b>${esc(x.medication)}</b> ${esc(x.dose)} <span class="muted small">${x.loggedAt ? '· confirmed ' + esc(x.loggedAt.slice(11)) : x.withFood ? '· with food' : ''}</span></span>
+      <span class="chip ${x.status}">${x.status === 'missed' ? 'overdue' : x.status}</span></li>`).join('');
+
+  // Tasks
+  $('tasks').innerHTML = s.tasks.map((k) => `<li><span class="grow">${esc(k.title)}<br><span class="muted small">${k.claimedByName ? 'Taken by ' + esc(k.claimedByName) : 'Nobody yet'}</span></span>
+      ${k.claimedBy === viewerId ? `<button data-done="${k.id}">Done</button>` : k.claimedBy ? '' : `<button class="primary" data-claim="${k.id}">I'll do it</button>`}</li>`).join('') || '<li class="empty">No open tasks.</li>';
+
+  // Appointments
+  $('appts').innerHTML = s.appointments.map((a) => `<li><span class="grow"><b>${esc(a.title)}</b><br>
+      <span class="muted small">${a.inDays === 0 ? 'Today' : a.inDays === 1 ? 'Tomorrow' : 'In ' + a.inDays + ' days'} · ${esc(a.spokenTime)} · ${esc(a.location)}${a.needsRide ? ` · ride: ${a.driver ? esc(a.driver) : 'needed'}` : ''}</span></span>
+      <button data-brief="${esc(a.title)}">Visit brief</button></li>`).join('') || '<li class="empty">Nothing scheduled.</li>';
+
+  // Medications + supply
+  $('meds').innerHTML = s.medications.map((m) => {
+    const sup = s.supply.find((x) => x.medId === m.id);
+    return `<li><span class="grow"><b>${esc(m.name)}</b> ${esc(m.dose)}${m.purpose ? ` <span class="muted small">for ${esc(m.purpose)}</span>` : ''}<br>
+      <span class="muted small">${m.times.join(', ')}${m.instructions ? ' · ' + esc(m.instructions) : ''}</span></span>
+      ${sup ? `<span class="chip ${sup.low ? 'due' : 'ok'}">${sup.daysLeft} days left</span>` : ''}</li>`;
+  }).join('');
+
+  // Journal
+  $('journal').innerHTML = s.wellbeing.map((w) => `<li class="${w.urgent ? 'alert-item urgent' : ''}"><span style="font-size:20px">${moodFace(w.mood)}</span>
+      <span class="grow">${esc(w.note) || '<span class="muted">Check-in</span>'}${w.symptoms.length ? `<br><span class="muted small">${esc(w.symptoms.join(', '))}</span>` : ''}</span>
+      <span class="muted small" style="white-space:nowrap">${esc(w.at.replace('T', ' '))}</span></li>`).join('');
+
+  // Setup
+  const c = s.circle;
+  $('setup').innerHTML = [
+    `<b>MCP server</b>: protocol ${esc(s.assistant.protocolVersion)}, Streamable HTTP at <code>/mcp</code>, one toolset per role`,
+    `<b>People</b>: ${s.people.map((p) => `${esc(p.name)} (${p.role === 'recipient' ? 'care recipient' : esc(p.relation)}, ${esc(p.device)})`).join(', ')}`,
+    `<b>Reminders</b>: when due → again after ${c.escalation.secondReminderAfter} min → family after ${c.escalation.alertFamilyAfter} min · quiet ${c.quietHours.start}–${c.quietHours.end}`,
+    `<b>AI</b>: ${s.assistant.bedrock ? 'Claude on Amazon Bedrock (' + esc(s.assistant.model) + ')' : 'Bedrock off: template fallbacks'} · <b>SMS/email</b>: ${s.assistant.sns ? 'Amazon SNS on' : 'Amazon SNS off'}`,
+    `<b>Ring</b>: ${s.ringDevices.map((d) => esc(d.name)).join(', ')} via signed webhooks (v1.1)`,
+  ].map((x) => `<li><span class="grow">${x}</span></li>`).join('');
+}
+
+// ---------- Actions ----------
+document.addEventListener('click', async (ev) => {
+  const b = ev.target.closest('button');
+  if (!b) return;
+  if (b.dataset.ack) { await post(`/api/alerts/${b.dataset.ack}/ack`); refresh(); }
+  if (b.dataset.claim || b.dataset.done) {
+    b.disabled = true;
+    const r = await post('/api/app-tool', { personId: viewerId, name: b.dataset.claim ? 'claim_task' : 'complete_task', arguments: { task: b.dataset.claim || b.dataset.done } });
+    toast(r.content?.[0]?.text || 'Done');
     refresh();
-    setInterval(refresh, 4000);
-  </script>
+  }
+  if (b.dataset.brief) {
+    b.disabled = true; b.textContent = 'Preparing…';
+    const r = await post('/api/app-tool', { personId: viewerId, name: 'prepare_visit_brief', arguments: { appointment: b.dataset.brief } });
+    b.disabled = false; b.textContent = 'Visit brief';
+    $('briefBody').innerHTML = md(r.structuredContent?.brief || r.content?.[0]?.text);
+    $('briefDialog').showModal();
+  }
+  if (b.dataset.ring) {
+    const r = await post('/api/simulate/ring', JSON.parse(b.dataset.ring));
+    toast(r.ok ? `Ring ${r.sent.data.type} webhook delivered (signed, v1.1)` : 'Webhook rejected');
+  }
+});
+
+$('explain').addEventListener('click', async () => {
+  $('explain').disabled = true; $('explain').textContent = 'Thinking…';
+  const r = await (await fetch('/api/state?ai=1&as=' + viewerId)).json();
+  narrative = r.drift.narrative;
+  $('explain').disabled = false; $('explain').textContent = 'Explain with Claude';
+  s = r; render();
+});
+
+$('viewer').addEventListener('change', (e) => { viewerId = e.target.value; history.replaceState(null, '', '?as=' + viewerId); refresh(); });
+$('tick').addEventListener('click', async () => { await post('/api/tick'); toast('Reminder engine ran'); });
+$('reset').addEventListener('click', async () => { if (confirm('Reset all demo data?')) { narrative = null; await post('/api/reset'); refresh(); } });
+
+// Pill bottle scan → Claude vision on Bedrock → confirm → add to plan
+$('scanBtn').addEventListener('click', () => $('scanFile').click());
+$('scanFile').addEventListener('change', async () => {
+  const file = $('scanFile').files[0];
+  if (!file) return;
+  $('scanForm').hidden = true;
+  $('scanStatus').textContent = 'Reading the label with Claude on Amazon Bedrock…';
+  $('scanDialog').showModal();
+  const image = await downscale(file);
+  const r = await post('/api/scan-label', { image });
+  $('scanFile').value = '';
+  if (r.error) { $('scanStatus').textContent = r.error; return; }
+  const l = r.label, f = $('scanForm');
+  f.medName.value = l.name || ''; f.dose.value = l.strength || ''; f.instructions.value = l.directions || '';
+  f.times.value = (l.suggestedTimes || []).join(', '); f.quantity.value = l.quantity ?? ''; f.prescriber.value = l.prescriber || '';
+  f.withFood.checked = Boolean(l.withFood); f.purpose.value = '';
+  $('scanWarn').textContent = [l.confidence !== 'high' ? `Confidence: ${l.confidence}. Please check every field against the bottle.` : 'Please check the details against the bottle.',
+    ...(l.warnings || [])].join(' ');
+  $('scanStatus').textContent = 'Here is what Claude read. Check it, choose times, and add it.';
+  f.hidden = false;
+});
+$('scanForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const f = ev.target;
+  const r = await post('/api/medications', {
+    name: f.medName.value, dose: f.dose.value, instructions: f.instructions.value, purpose: f.purpose.value,
+    times: f.times.value.split(',').map((x) => x.trim()).filter(Boolean), quantity: f.quantity.value || null,
+    prescriber: f.prescriber.value, withFood: f.withFood.checked, addedBy: viewerId,
+  });
+  if (r.error) { $('scanWarn').textContent = r.error; return; }
+  $('scanDialog').close();
+  toast(`${r.name} added. Margaret's Echo will mention it.`);
+  refresh();
+});
+function downscale(file, max = 1600) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', 0.88));
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// Live updates
+const events = new EventSource('/api/events');
+let pending;
+events.addEventListener('changed', () => { clearTimeout(pending); pending = setTimeout(refresh, 300); });
+events.onerror = () => { $('liveChip').textContent = 'offline'; };
+events.onopen = () => { $('liveChip').textContent = 'live'; };
+refresh();
+</script>
 </body>
 </html>

@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CareCircle · Echo Show Simulator</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+    @media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
+    .devices { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .devices button.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+    .bezel { background: #0b0d10; border-radius: 26px; padding: 18px 18px 26px; box-shadow: 0 12px 40px rgb(0 0 0 / .25); }
+    .screen { position: relative; aspect-ratio: 16 / 10; background: #0e1a24; border-radius: 10px; overflow: hidden; color: #eef3f7; }
+    .statusbar { position: absolute; top: 0; left: 0; right: 0; height: 34px; display: flex; justify-content: space-between; align-items: center; padding: 0 16px; font-size: 13px; color: #b9c7d4; z-index: 3; background: linear-gradient(#0e1a24, rgb(14 26 36 / 0)); }
+    .home { position: absolute; inset: 34px 0 64px; display: flex; flex-direction: column; justify-content: center; padding: 0 40px; gap: 6px;
+            background: radial-gradient(circle at 80% 20%, #17465a 0%, #0e1a24 60%); }
+    .home .clock { font-size: clamp(42px, 8vw, 84px); font-weight: 300; line-height: 1; }
+    .home .line { font-size: clamp(15px, 2vw, 22px); color: #cfe1ec; }
+    .home .pill { display: inline-block; margin-top: 10px; background: rgb(255 255 255 / .08); border-radius: 12px; padding: 10px 14px; font-size: clamp(14px, 1.6vw, 18px); max-width: 90%; }
+    .viewwrap { position: absolute; inset: 34px 0 64px; background: #fff; display: none; }
+    .viewwrap.on { display: block; }
+    .viewwrap iframe { width: 100%; height: 100%; border: 0; display: block; }
+    .viewwrap .close { position: absolute; top: 6px; right: 8px; z-index: 2; background: rgb(0 0 0 / .55); color: #fff; border: 0; border-radius: 999px; width: 30px; height: 30px; padding: 0; }
+    .caption { position: absolute; left: 0; right: 0; bottom: 6px; height: 58px; padding: 6px 18px; display: flex; flex-direction: column; justify-content: center; font-size: 15px; z-index: 3; }
+    .caption .you { color: #9fb4c6; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .caption .alexa { color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lightbar { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: transparent; z-index: 4; }
+    .lightbar.listening { background: linear-gradient(90deg, #1b8cff, #18e0ff, #1b8cff); background-size: 200% 100%; animation: flow 1s linear infinite; }
+    .lightbar.thinking { background: linear-gradient(90deg, #18e0ff 0 20%, #1b4cff 20% 100%); background-size: 200% 100%; animation: flow .7s linear infinite; }
+    .lightbar.speaking { background: #18c6ff; }
+    .lightbar.notify { background: #ffb020; animation: pulse 1s ease-in-out infinite; }
+    @keyframes flow { to { background-position: -200% 0; } }
+    @keyframes pulse { 50% { opacity: .35; } }
+    .announce { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, 86%); background: #fff; color: #1d2330; border-radius: 18px; padding: 18px 20px; z-index: 6; display: none; box-shadow: 0 20px 60px rgb(0 0 0 / .4); }
+    .announce.on { display: block; }
+    .announce .kind { font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: #a8670f; }
+    .announce.urgent .kind { color: #b93a2e; }
+    .announce p { font-size: 20px; margin: 6px 0 14px; }
+    .say { display: flex; gap: 8px; margin-top: 14px; }
+    .say input { flex: 1; min-width: 0; border-radius: 999px; padding: 10px 14px; }
+    .mic { width: 44px; height: 44px; border-radius: 50%; padding: 0; font-size: 18px; }
+    .mic.on { background: #18a6ff; color: #fff; border-color: #18a6ff; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .chips button { font-size: 13px; font-weight: 500; }
+    .trace li { flex-direction: column; align-items: stretch !important; gap: 3px !important; }
+    .trace code { font-size: 12px; background: var(--up-soft); padding: 2px 6px; border-radius: 6px; word-break: break-word; }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <div class="logo"><svg viewBox="0 0 64 64"><path d="M32 50s-17-10.3-17-21.8a9.7 9.7 0 0 1 17-6.4 9.7 9.7 0 0 1 17 6.4C49 39.7 32 50 32 50z" fill="#fff"/></svg></div>
+      <div><h1>Echo Show simulator</h1><p>An Alexa+-style host: Claude on Bedrock + the CareCircle MCP server + MCP Apps views</p></div>
+    </div>
+    <nav class="nav"><a href="/">Family dashboard →</a></nav>
+  </header>
+
+  <main>
+    <div class="devices" id="devices"></div>
+    <div class="layout">
+      <section>
+        <div class="bezel">
+          <div class="screen" id="screen">
+            <div class="statusbar"><span id="deviceName">Echo Show</span><span id="sbTime"></span></div>
+            <div class="home" id="home">
+              <div class="clock" id="clock">--:--</div>
+              <div class="line" id="homeLine"></div>
+              <div><span class="pill" id="homePill"></span></div>
+            </div>
+            <div class="viewwrap" id="viewwrap"><button class="close" id="closeView" title="Close">✕</button></div>
+            <div class="announce" id="announce"><div class="kind" id="annKind">Reminder</div><p id="annText"></p><div class="row"><button class="primary" id="annOk">OK</button></div></div>
+            <div class="caption"><div class="you" id="capYou">Tap the mic or type below, as if talking to Alexa.</div><div class="alexa" id="capAlexa"></div></div>
+            <div class="lightbar" id="lightbar"></div>
+          </div>
+        </div>
+        <form class="say" id="say">
+          <button type="button" class="mic" id="mic" title="Talk">🎙</button>
+          <input id="text" placeholder="Say something…" autocomplete="off">
+          <button class="primary" type="submit">Say</button>
+        </form>
+        <div class="chips" id="chips"></div>
+      </section>
+
+      <aside class="card">
+        <h2>Under the hood <span class="chip info" id="mode">offline</span></h2>
+        <p class="muted small" id="modeText"></p>
+        <ul class="list trace" id="trace"><li class="empty">MCP tool calls appear here.</li></ul>
+      </aside>
+    </div>
+  </main>
+  <div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const conversationId = Math.random().toString(36).slice(2);
+const params = new URLSearchParams(location.search);
+let people = [], person = null, state = null, events = null, view = null;
+const queue = [];
+
+const SUGGESTIONS = {
+  recipient: ['What do I take today?', 'I just took my Metformin', 'I took my Metformin', 'Did I miss anything?',
+    "I didn't sleep well, I feel a bit muddled", 'Any messages for me?', 'Tell Priya I need more milk', 'I fell in the kitchen'],
+  caregiver: ["How's Mum doing?", 'Has anything changed with her routine?', "I'll drive her to cardiology",
+    "I'll pick up the Lisinopril", 'Tell Mum I love her and will call tonight', 'Prepare a brief for the cardiology visit', 'Give me the weekly digest'],
+};
+
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2600); }
+function light(state) { $('lightbar').className = 'lightbar ' + (state || ''); }
+
+function speak(text, after) {
+  if (!('speechSynthesis' in window)) { after?.(); return; }
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.97;
+  u.onstart = () => light('speaking');
+  u.onend = () => { light(''); after?.(); };
+  speechSynthesis.speak(u);
+}
+
+async function loadState() {
+  state = await (await fetch('/api/state?as=' + (person?.role === 'caregiver' ? person.id : 'priya'))).json();
+  people = state.people;
+  renderHome();
+}
+
+function renderDevices() {
+  $('devices').innerHTML = people.map((p) => `<button data-id="${p.id}" class="${p.id === person.id ? 'active' : ''}">${esc(p.name)} · ${esc(p.device)}</button>`).join('');
+  $('chips').innerHTML = SUGGESTIONS[person.role].map((s) => `<button type="button">${esc(s)}</button>`).join('');
+  $('deviceName').textContent = `${person.device} · ${person.name}`;
+}
+
+function renderHome() {
+  if (!state || !person) return;
+  const t = state.today;
+  $('clock').textContent = t.now;
+  $('sbTime').textContent = `${t.weekday} ${t.now}`;
+  if (person.role === 'recipient') {
+    $('homeLine').textContent = `${t.taken} of ${t.total} medicines done today`;
+    const due = t.slots.filter((s) => s.status === 'due' || s.status === 'missed');
+    $('homePill').textContent = due.length ? `Time to take: ${due.map((s) => s.medication).join(', ')}` : t.next ? `Next: ${t.next.medication} at ${t.next.time}` : 'All done for today';
+  } else {
+    $('homeLine').textContent = `${state.recipient}: ${t.taken}/${t.total} doses today · routine ${state.drift.level}`;
+    const open = state.tasks.filter((x) => !x.claimedBy).length;
+    $('homePill').textContent = open ? `${open} family task${open > 1 ? 's' : ''} need someone` : 'No open family tasks';
+  }
+}
+
+function selectPerson(id) {
+  person = people.find((p) => p.id === id) || people[0];
+  history.replaceState(null, '', '?device=' + person.id);
+  closeView();
+  $('trace').innerHTML = '<li class="empty">MCP tool calls appear here.</li>';
+  $('capYou').textContent = 'Tap the mic or type below, as if talking to Alexa.';
+  $('capAlexa').textContent = '';
+  renderDevices();
+  renderHome();
+  subscribe();
+}
+
+// ---------- Proactive announcements (server-sent events) ----------
+function subscribe() {
+  events?.close();
+  events = new EventSource('/api/events?person=' + person.id);
+  events.addEventListener('announcement', (ev) => { queue.push(JSON.parse(ev.data)); if (queue.length === 1) showNext(); });
+  events.addEventListener('changed', () => loadState());
+}
+
+function showNext() {
+  const a = queue[0];
+  if (!a) return;
+  $('announce').className = 'announce on ' + (a.kind === 'urgent' ? 'urgent' : '');
+  $('annKind').textContent = { reminder: 'Medicine reminder', family: 'From your family', urgent: 'Urgent', doorbell: 'Front door' }[a.kind] || 'CareCircle';
+  $('annText').textContent = a.text;
+  light('notify');
+  speak(a.text, () => light('notify'));
+}
+$('annOk').addEventListener('click', () => {
+  const a = queue.shift();
+  if (a) fetch(`/api/announcements/${a.id}/heard`, { method: 'POST' });
+  $('announce').className = 'announce';
+  light('');
+  speechSynthesis?.cancel();
+  showNext();
+});
+
+// ---------- Conversation ----------
+async function send(utterance) {
+  if (!utterance.trim()) return;
+  $('capYou').textContent = '“' + utterance + '”';
+  $('capAlexa').textContent = '…';
+  light('thinking');
+  try {
+    const res = await fetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ utterance, personId: person.id, conversationId }) });
+    const data = await res.json();
+    $('capAlexa').textContent = data.reply;
+    renderTrace(data);
+    if (data.ui) mountView(data.ui);
+    speak(data.reply);
+  } catch {
+    $('capAlexa').textContent = 'Sorry, I could not reach CareCircle.';
+    light('');
+  }
+}
+
+function renderTrace(data) {
+  $('mode').textContent = data.mode === 'bedrock' ? 'Claude on Bedrock' : 'offline';
+  $('mode').className = 'chip ' + (data.mode === 'bedrock' ? 'ok' : 'info');
+  $('modeText').textContent = data.mode === 'bedrock'
+    ? `Claude picks tools discovered via MCP tools/list, as ${person.name}. Instructions come from the CareCircle Agent Skill.`
+    : 'Keyword router calling the real MCP tools (set BEDROCK_ENABLED=true for Claude).';
+  if ($('trace').querySelector('.empty')) $('trace').innerHTML = '';
+  for (const t of data.trace || []) {
+    const li = document.createElement('li');
+    li.innerHTML = `<div class="row"><span class="chip info">tools/call</span><b>${esc(t.tool)}</b>${t.ui ? '<span class="chip ring">MCP App</span>' : ''}<span class="muted small">as ${esc(person.name)}</span></div>
+      <code>${esc(JSON.stringify(t.input))}</code><span class="muted small">→ ${esc(t.output)}</span>`;
+    $('trace').prepend(li);
+  }
+}
+
+function traceNote(label, detail) {
+  if ($('trace').querySelector('.empty')) $('trace').innerHTML = '';
+  const li = document.createElement('li');
+  li.innerHTML = `<div class="row"><span class="chip ring">${esc(label)}</span></div><span class="muted small">${esc(detail)}</span>`;
+  $('trace').prepend(li);
+}
+
+// ---------- MCP Apps host bridge ----------
+// Renders a ui:// resource in a sandboxed iframe (opaque origin: scripts only, no same-origin access)
+// and speaks the MCP Apps postMessage protocol: ui/initialize, tool-input/tool-result notifications,
+// tools/call proxied to the server as the current person, ui/message, ui/open-link, model context.
+function mountView(ui) {
+  closeView();
+  const frame = document.createElement('iframe');
+  frame.setAttribute('sandbox', 'allow-scripts allow-forms');
+  frame.title = ui.uri;
+  frame.srcdoc = ui.html;
+  $('viewwrap').appendChild(frame);
+  $('viewwrap').classList.add('on');
+  view = { ui, frame, initialized: false };
+  traceNote('MCP App', `Rendering ${ui.uri} for ${ui.toolName}`);
+}
+
+function closeView() {
+  if (view) {
+    post({ jsonrpc: '2.0', id: 'teardown', method: 'ui/resource-teardown', params: { reason: 'closed' } });
+    view.frame.remove();
+  }
+  view = null;
+  $('viewwrap').classList.remove('on');
+}
+$('closeView').addEventListener('click', closeView);
+
+const post = (msg) => view?.frame.contentWindow?.postMessage(msg, '*');
+const respond = (id, result) => post({ jsonrpc: '2.0', id, result });
+const fail = (id, message) => post({ jsonrpc: '2.0', id, error: { code: -32000, message } });
+
+window.addEventListener('message', async (ev) => {
+  if (!view || ev.source !== view.frame.contentWindow) return;
+  const msg = ev.data;
+  if (!msg || msg.jsonrpc !== '2.0' || !msg.method) return;
+  const { id, method, params = {} } = msg;
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  switch (method) {
+    case 'ui/initialize': {
+      const rect = view.frame.getBoundingClientRect();
+      respond(id, {
+        protocolVersion: params.protocolVersion,
+        hostInfo: { name: 'CareCircle Echo Show Simulator', version: '2.0.0' },
+        hostCapabilities: { openLinks: {}, serverTools: {}, logging: {} },
+        hostContext: {
+          toolInfo: { tool: view.ui.tool },
+          theme: dark ? 'dark' : 'light', displayMode: 'inline', availableDisplayModes: ['inline'],
+          containerDimensions: { width: Math.round(rect.width), height: Math.round(rect.height) },
+          locale: navigator.language, timeZone: state?.circle?.timezone, platform: 'web',
+          deviceCapabilities: { touch: true, hover: false },
+        },
+      });
+      break;
+    }
+    case 'ui/notifications/initialized':
+      view.initialized = true;
+      post({ jsonrpc: '2.0', method: 'ui/notifications/tool-input', params: { arguments: view.ui.toolInput || {} } });
+      post({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: view.ui.toolResult });
+      break;
+    case 'tools/call': {
+      const result = await (await fetch('/api/app-tool', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ personId: person.id, name: params.name, arguments: params.arguments }) })).json();
+      traceNote('App → tools/call', `${params.name} ${JSON.stringify(params.arguments)} → ${result.content?.[0]?.text ?? ''}`);
+      respond(id, result);
+      if (result.content?.[0]?.text) { $('capAlexa').textContent = result.content[0].text; speak(result.content[0].text); }
+      break;
+    }
+    case 'ui/message': {
+      respond(id, {});
+      const text = (params.content || []).filter((c) => c.type === 'text').map((c) => c.text).join(' ');
+      traceNote('App → ui/message', text);
+      send(text);
+      break;
+    }
+    case 'ui/update-model-context':
+      traceNote('App → model context', (params.content || []).map((c) => c.text).join(' '));
+      respond(id, {});
+      break;
+    case 'ui/open-link':
+      window.open(params.url, '_blank', 'noopener');
+      respond(id, {});
+      break;
+    case 'ui/request-display-mode':
+      respond(id, { mode: 'inline' });
+      break;
+    case 'ping':
+      respond(id, {});
+      break;
+    default:
+      if (id !== undefined) fail(id, `Unsupported in this host: ${method}`);
+  }
+});
+
+// ---------- Input ----------
+$('say').addEventListener('submit', (ev) => { ev.preventDefault(); const t = $('text').value; $('text').value = ''; send(t); });
+$('chips').addEventListener('click', (ev) => { if (ev.target.tagName === 'BUTTON') send(ev.target.textContent); });
+$('devices').addEventListener('click', (ev) => { const b = ev.target.closest('button[data-id]'); if (b) selectPerson(b.dataset.id); });
+
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (Recognition) {
+  const rec = new Recognition();
+  rec.lang = 'en-US';
+  rec.onstart = () => { light('listening'); $('mic').classList.add('on'); };
+  rec.onend = () => { $('mic').classList.remove('on'); if ($('lightbar').classList.contains('listening')) light(''); };
+  rec.onerror = () => light('');
+  rec.onresult = (ev) => send(ev.results[0][0].transcript);
+  $('mic').addEventListener('click', () => { speechSynthesis?.cancel(); rec.start(); });
+} else {
+  $('mic').disabled = true;
+  $('mic').title = 'Voice input needs Chrome or Edge';
+}
+
+setInterval(() => loadState(), 60_000); // keep the clock and home screen fresh
+(async () => {
+  await loadState();
+  person = people.find((p) => p.id === params.get('device')) || people[0];
+  selectPerson(person.id);
+})();
+</script>
+</body>
+</html>

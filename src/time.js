@@ -25,7 +25,17 @@ export const toMinutes = (hhmm) => {
   return h * 60 + m;
 };
 
-export const addDays = (date, n) => new Date(date.getTime() + n * 86_400_000);
+export const fromMinutes = (mins) => {
+  const m = ((Math.round(mins) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+};
+
+export function inWindow(hhmm, { start, end }) {
+  const t = toMinutes(hhmm), s = toMinutes(start), e = toMinutes(end);
+  return s <= e ? t >= s && t < e : t >= s || t < e;
+}
+
+export const addDays =(date, n) => new Date(date.getTime() + n * 86_400_000);
 
 export function daysBetween(fromDate, toDate) {
   return Math.round((Date.parse(`${toDate}T00:00:00Z`) - Date.parse(`${fromDate}T00:00:00Z`)) / 86_400_000);
