@@ -97,44 +97,85 @@ in the Echo simulator instead.
 
 - Repo: https://github.com/mokshit007/carecircle (MIT)
 - GitHub username: mokshit007
-- What, how and why: *(write 2–3 sentences in your own words)*
+- What, how and why: CareCircle is a new MIT-licensed open-source project: an Alexa+ MCP server that lets one care
+  circle (an older adult and their family) share medication reminders, check-ins, family tasks and early-warning
+  insights. It runs as a stateless Streamable HTTP MCP server with role-scoped tools, MCP Apps views, OAuth account
+  linking and Ring webhooks, with unit tests and CI. It matters because families caring for an older relative have
+  had no voice-first, open tool since Alexa Together was retired, and anyone can now self-host or extend this one.
 
 ---
 
-## Product feedback (draft: rewrite with your own experience)
+## Product feedback
 
-**MCP TypeScript SDK 1.32**: Used for the role-scoped server, stateless Streamable HTTP and the simulator's client.
-Worked well: `registerTool` with annotations, `_meta` and `structuredContent`; 2025-11-25 negotiated with no
-configuration. Needs work: the localhost Host-header check returns a bare 403 behind a tunnel until `allowedHosts`
-is set.
+*Drafted from the build log (what actually happened while building). Edit anything that doesn't match your experience.*
 
-**MCP Apps (`@modelcontextprotocol/ext-apps` 1.7)**: Used for the Today and Care-circle views and the simulator's host
-bridge. Worked well: the `App` class (`ontoolresult`, `callServerTool`, `updateModelContext`) is small and clear.
-Needs work: 2.x requires SDK v2 peers, so v1 servers must stay on ext-apps 1.x; a single-file "classic script" build
-would make self-contained views easier.
+**Alexa+ (MCP integration path)**
+- *Used for:* the primary target. CareCircle implements MCP 2025-11-25 over Streamable HTTP as the track asks.
+- *Worked well:* building on open standards (MCP, MCP Apps, Agent Skills) meant every part could be built and tested
+  with existing open tools before preview access.
+- *Needs work:* the resources page for Alexa+ links to the generic MCP Apps and transport docs, but nothing
+  Alexa+-specific. We couldn't find: how to register an endpoint, which MCP features Alexa+ supports (MCP Apps on
+  Echo Show? elicitation? `structuredContent`?), how account linking maps to OAuth, or how speaker identity is passed.
+  We had to design for all cases and build our own simulator.
+- *Onboarding:* without a preview account or a test console there was no way to see how Alexa+ would choose our tools.
+- *Would build again:* yes, especially with a proactive-notification path (see feature requests).
 
-**Ring Partner API**: Used for webhook v1.1 payloads and HMAC verification. Worked well: clear payload examples,
-`meta.request_id` for idempotency. Needs work: no device-free sandbox or webhook replay tool for developers without
-hardware.
+**MCP TypeScript SDK (1.32)**
+- *Used for:* the server (`McpServer`, `registerTool`, `registerResource`, `registerPrompt`), stateless
+  `StreamableHTTPServerTransport`, the OAuth authorization-server router (`mcpAuthRouter`), and clients in the simulator,
+  the stdio bridge and tests.
+- *Worked well:* annotations, `_meta` and `structuredContent` on tools; 2025-11-25 negotiated with no configuration;
+  stateless mode is a few lines; `mcpAuthRouter` gave discovery, dynamic registration, PKCE and rate limiting for free,
+  so a full OAuth flow took one provider class.
+- *Needs work:* `createMcpExpressApp` installs `express.json()` for the whole app, so routes that need the raw body
+  (HMAC-signed webhooks) can't use it, and we rebuilt the middleware by hand. The localhost Host-header check returns a
+  bare 403 with no hint about `allowedHosts`.
+- *Would build again:* yes.
 
-**Claude on Amazon Bedrock**: *(fill in: model access, credentials, latency for voice)*
+**MCP Apps (`@modelcontextprotocol/ext-apps` 1.7.5)**
+- *Used for:* the Today and Care-circle views (an app-only tool for "I took it", `updateModelContext`, `ui/message`),
+  and the host bridge in our Echo simulator.
+- *Worked well:* the `App` class is small and clear; our 1.x views worked unchanged in the 2.x reference host.
+- *Needs work:* 2.x requires SDK v2 peers, so v1 servers must pin 1.x, and that isn't stated on the landing page. Views
+  must be single self-contained HTML, but the published runtime is an ES module ending in `export {…}`, so we
+  rewrote its exports into a global to inline it. A ready-to-inline build would help. The reference host needs Bun,
+  can't send auth headers, and needs CORS on the server; none of this is in its README.
+- *Would build again:* yes. It's the best way we found to give a voice tool a real screen.
 
-**Alexa+ MCP**: *(fill in: what registering the endpoint was like, how you tested)*
+**Ring Partner API**
+- *Used for:* webhook v1.1 payloads (`motion_detected`, `button_press`), `X-Signature` HMAC verification over the raw
+  body, and `meta.request_id` de-duplication.
+- *Worked well:* the payload examples are concrete and the retry/idempotency rules are clearly stated.
+- *Needs work:* the reference is one very long page, and the payload schema sits deep inside it. There's no sandbox,
+  simulated device or "send test webhook" button for developers without hardware.
+- *Would build again:* yes, for caretaking signals like night-time door activity.
 
-## Friction log (up to 10% bonus; fill in as you go)
+**Claude on Amazon Bedrock (and AWS generally)**
+- *Used for:* the agent loop over MCP-discovered tools, routine-drift explanations, the digest, the visit brief and
+  pill-label reading, all via `@anthropic-ai/bedrock-sdk`.
+- *Needs work:* we didn't have an AWS account, and the hackathon's AWS credit codes had run out (7 October update), so
+  this path was implemented but couldn't be run. Every AI feature has a deterministic fallback for that reason.
+- *Would build again:* yes, with credits.
+
+## Friction log
 
 | Task | Steps | Expected | Actual | Severity | Workaround | Suggestion |
 |---|---|---|---|---|---|---|
-| Test Ring webhooks without a device | Read API docs, looked for a sandbox | A way to trigger signed test events | None documented | Medium | Built a signer that sends real v1.1 payloads to our own endpoint | A portal button that sends a signed test event |
-| Test views in the MCP Apps reference host (basic-host) | Cloned ext-apps, `npm run start` in examples/basic-host | Host starts | `serve` needs Bun; host can't send auth headers; browser host needs CORS on /mcp | Medium | Built with `npx vite`, ran `node serve.ts`; added CORS; picked the person via env var | Document a Node path and support custom headers per server |
-| Use MCP Apps with an SDK v1 server | Installed latest ext-apps | Works with the current SDK | 2.x needs SDK v2 peers | Low | Pinned ext-apps 1.7.5 | Document the version matrix on the landing page |
-| | | | | | | |
+| Find Alexa+-specific MCP guidance | Read the hackathon resources page; followed the Alexa+ links | How to register an endpoint, supported features, auth | Links go to generic MCP Apps and transport docs only | High | Built to the open specs, plus our own Echo Show simulator acting as an MCP Apps host | One Alexa+ page: endpoint registration, supported MCP features, OAuth/account-linking mapping, speaker identity |
+| Use Claude on Bedrock | Planned AWS Builder integration; checked credits | Hackathon credits for Bedrock | Credit codes ran out on 7 October; no AWS account | High | Implemented the Bedrock path plus deterministic fallbacks; demoed AI through the Claude desktop app | Reserve credits per team, or provide a shared sandbox model endpoint |
+| Verify signed Ring webhooks without a device | Read API docs; looked for a sandbox or test sender | A way to send signed test events | None documented | Medium | Wrote a signer that sends real v1.1 payloads to our own endpoint | A "send test webhook" button in the Developer Portal |
+| Read the raw body for HMAC with `createMcpExpressApp` | Used the SDK's Express helper | Add a raw-body route | The helper applies `express.json()` globally first | Medium | Assembled the middleware by hand (host validation + JSON) | An option to skip or scope the JSON parser |
+| Run the MCP Apps reference host | Cloned ext-apps; `npm run start` in examples/basic-host | Host starts | `serve` needs Bun; no auth headers; server needs CORS | Medium | `npx vite build`, `node serve.ts`, added CORS, chose the person by env var | Document a Node path; allow headers per server |
+| Inline the MCP Apps runtime in a self-contained view | Used `app-with-deps` | A drop-in script | ES module ending in `export {…}` | Low | Rewrote the exports into a global at build time | Publish a ready-to-inline (IIFE) build |
+| Use ext-apps with an SDK v1 server | Installed latest ext-apps | Works with the current SDK | 2.x needs SDK v2 peers | Low | Pinned ext-apps 1.7.5 | Version matrix on the landing page |
+| Add an MCP server to the Claude desktop app by editing its config | Edited `claude_desktop_config.json` while the app ran | Change is kept | The app rewrote the file and dropped it | Low | Installer script that refuses to run while the app is open | Reload config on change, or warn in the file |
 
 ## Feature requests
 
-- **Critical:** Proactive notifications from an MCP server to an Echo (spoken reminders and family announcements). Medication reminders depend on it.
-- **Important:** Speaker identity passed to MCP servers (who is talking), so role-scoped tools work on shared devices.
-- **Nice-to-have:** An official Alexa+ MCP test console that shows tool selection and MCP Apps rendering on an Echo Show frame.
+- **Critical:** Proactive notifications from an MCP server to an Echo (spoken reminders, check-ins, family announcements). Medication reminders and wellness checks depend on it.
+- **Important:** Speaker identity (voice ID) passed to MCP servers, so role-scoped tools work on shared devices.
+- **Important:** An Alexa+ MCP test console showing tool selection, spoken output and MCP Apps rendering on an Echo Show frame.
+- **Nice-to-have:** A Ring developer sandbox with simulated devices and a "send test webhook" button.
 
 ---
 
