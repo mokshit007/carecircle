@@ -20,7 +20,16 @@ const W = 1280, H = 720;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- narration ----------
-function narrate(text, file) {
+// Kokoro (open-source neural voice) by default; VIDEO_TTS=windows falls back to the built-in Windows voice.
+async function narrate(text, file) {
+  if (process.env.VIDEO_TTS !== 'windows') {
+    const { speak } = await import('./tts-kokoro.js');
+    return speak(text, file);
+  }
+  return narrateWindows(text, file);
+}
+
+function narrateWindows(text, file) {
   const txt = file.replace(/\.wav$/, '.txt');
   fs.writeFileSync(txt, text, 'utf8');
   const ps = `Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer;
@@ -65,7 +74,7 @@ async function recordScene(page, index, scene) {
   const dir = path.join(WORK, `scene${String(index).padStart(2, '0')}`);
   fs.mkdirSync(dir);
   const wav = path.join(dir, 'narration.wav');
-  const narrationSeconds = narrate(scene.say, wav);
+  const narrationSeconds = await narrate(scene.say, wav);
   // Frames arrive from the screencast stream whenever the page repaints; static moments simply hold the last frame.
   const frames = [];
   const start = Date.now();
@@ -217,7 +226,7 @@ const scenes = [
     do: async (p) => { await echo(p, 'margaret'); await say(p, 'I fell in the kitchen'); await sleep(1500); },
   },
   {
-    say: 'Ring webhooks arrive signed and verified. Front door motion at 2:47 in the morning alerts the family. And the scariest case is silence. If Margaret hasn’t spoken to Alexa by mid morning, her Echo checks in, and if she doesn’t answer, the family is told.',
+    say: 'Ring webhooks arrive signed and verified. Front door motion at two forty-seven in the morning alerts the family. And the scariest case is silence. If Margaret hasn’t spoken to Alexa by mid morning, her Echo checks in, and if she doesn’t answer, the family is told.',
     do: async (p) => {
       await dashboard(p);
       await p.evaluate(() => document.querySelector('#nights').scrollIntoView({ block: 'start', behavior: 'smooth' }));
@@ -243,7 +252,7 @@ const scenes = [
     },
   },
   {
-    say: 'CareCircle runs on MCP, version 2025-11-25, over Streamable HTTP, with role-scoped tools, MCP Apps, OAuth account linking, an Agent Skill, and Ring webhooks. It’s open source, with unit tests and continuous integration. CareCircle: peace of mind for the whole family.',
+    say: 'CareCircle runs on the latest MCP specification, over Streamable HTTP, with role-scoped tools, MCP Apps, OAuth account linking, an Agent Skill, and Ring webhooks. It’s open source, with unit tests and continuous integration. CareCircle: peace of mind for the whole family.',
     do: (p) => card(p, 'CareCircle', 'MCP 2025-11-25 · Streamable HTTP · MCP Apps · OAuth 2.1 · Agent Skill · Ring',
       'Open source (MIT) · 15 unit tests + end-to-end tests in CI<br><b style="color:#eef3f7">github.com/mokshit007/carecircle</b>'),
   },
